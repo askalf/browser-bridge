@@ -6,7 +6,7 @@
 # Image size ~600MB — chromium itself + node:22-slim + puppeteer-extra
 # stealth deps. We build under non-root `browser` so the running process
 # isn't privileged.
-FROM node:22-slim
+FROM node:26-slim
 
 LABEL org.opencontainers.image.source="https://github.com/askalf/browser-bridge"
 LABEL org.opencontainers.image.description="browser-bridge — stealth headless Chromium exposing CDP on port 9222"
