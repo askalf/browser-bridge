@@ -1,0 +1,30 @@
+name: build
+
+# Verifies the Dockerfile builds cleanly on every PR / push. Doesn't
+# push the image — that's release.yml on a tag. We just want to catch
+# Dockerfile breaks (apt-get failing, npm install diverging, etc.)
+# before they hit a release.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Build (no push) — verifies Dockerfile is sound
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          push: false
+          tags: browser-bridge:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

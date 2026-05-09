@@ -1,0 +1,16 @@
+{
+  "name": "browser-bridge-image",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Build-time package manifest for the browser-bridge Docker image. Not published to npm — install only resolves puppeteer-extra deps inside the container.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.7.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}

@@ -1,0 +1,10 @@
+.git/
+.github/
+node_modules/
+*.md
+!Dockerfile.md
+.gitignore
+.dockerignore
+LICENSE
+SECURITY.md
+CHANGELOG.md

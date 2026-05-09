@@ -1,0 +1,109 @@
+name: release
+
+# Triggered on pushed tags `vX.Y.Z`. Builds a multi-arch image
+# (linux/amd64 + linux/arm64) and pushes to GHCR with the full set of
+# tags (`:vX.Y.Z`, `:vX.Y`, `:vX`, `:latest`).
+#
+# Authentication uses GITHUB_TOKEN with `packages: write` — no extra
+# secrets needed, GHCR understands `GITHUB_TOKEN` for the owning repo.
+# To also push to Docker Hub, add a docker/login-action step + DOCKERHUB
+# secrets. We start with GHCR-only.
+#
+# Idempotent — if you re-run on an existing tag, the same digest is
+# pushed (no-op). Use workflow_dispatch with a tag input for manual
+# rebuilds.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v0.0.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          # Check out the tag for manual reruns; defaults to the
+          # pushed tag in the auto-trigger case.
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Compute version components
+        id: ver
+        env:
+          REF: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ver="${REF#v}"
+          major="${ver%%.*}"
+          minorpatch="${ver#*.}"
+          minor="${minorpatch%%.*}"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+          echo "major=$major" >> "$GITHUB_OUTPUT"
+          echo "minor=$minor" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push (multi-arch)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/browser-bridge:v${{ steps.ver.outputs.ver }}
+            ghcr.io/${{ github.repository_owner }}/browser-bridge:v${{ steps.ver.outputs.major }}.${{ steps.ver.outputs.minor }}
+            ghcr.io/${{ github.repository_owner }}/browser-bridge:v${{ steps.ver.outputs.major }}
+            ghcr.io/${{ github.repository_owner }}/browser-bridge:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        env:
+          VERSION: ${{ steps.ver.outputs.ver }}
+        run: |
+          set -euo pipefail
+          node -e "
+            const fs = require('fs');
+            const md = fs.existsSync('CHANGELOG.md') ? fs.readFileSync('CHANGELOG.md', 'utf-8') : '';
+            const re = new RegExp('^## \\\\[' + process.env.VERSION + '\\\\][^\\\\n]*\\\\n([\\\\s\\\\S]*?)(?=\\\\n## \\\\[|$)', 'm');
+            const m = re.exec(md);
+            const body = m ? m[1].trim() : '';
+            fs.writeFileSync('release-notes.md', body || ('Release v' + process.env.VERSION));
+          "
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.ver.outputs.ver }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping."
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file release-notes.md
+          fi
