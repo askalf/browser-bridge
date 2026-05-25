@@ -30,7 +30,7 @@ Bundling a browser into every agent / scraper / MCP server / test runner is over
 - **Healthchecked** — Docker-level healthcheck hits `/json/version` every 15s.
 - **Heartbeat logs** — one log line per minute confirming the browser is still connected. Pair with restart policy for self-recovery.
 
-## Use it
+## Usage
 
 ### Standalone
 
@@ -94,6 +94,75 @@ const browser = await puppeteer.connect({
   browserWSEndpoint: 'ws://localhost:9222',
 });
 ```
+
+### Connect from hands
+
+[hands](https://github.com/askalf/hands) is a computer-use agent that mostly drives the local desktop directly, but its `read_page` tool fetches URLs over plain HTTP. Pointing it at a browser-bridge gives it a real Chromium for the cases where a server bounces non-browser User-Agents or where the page is a JS-heavy SPA:
+
+```ts
+// hands/src/tools/read-page.ts — variant using browser-bridge instead of fetch()
+import { chromium } from 'playwright';
+
+const browser = await chromium.connectOverCDP(
+  process.env.BROWSER_BRIDGE_URL ?? 'http://localhost:9222',
+);
+const ctx = browser.contexts()[0] ?? await browser.newContext();
+const page = await ctx.newPage();
+try {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  const html = await page.content();
+  return { text: cleanHtml(html), meta: { url, finalUrl: page.url(), status: 200 } };
+} finally {
+  await page.close();
+}
+```
+
+Set `BROWSER_BRIDGE_URL` in the hands environment to the bridge container's address (e.g. `http://browser-bridge:9222` on a shared docker network).
+
+### Connect from deepdive
+
+[deepdive](https://github.com/askalf/deepdive) is a research agent whose `BrowserSession` (`src/browser.ts`) launches a local Playwright Chromium by default. Swap `chromium.launch()` for `chromium.connectOverCDP()` to share one browser-bridge across many deepdive runs:
+
+```ts
+// deepdive/src/browser.ts — BrowserSession.start() using browser-bridge
+import { chromium } from 'playwright';
+
+async start(): Promise<void> {
+  const bridgeUrl = process.env.BROWSER_BRIDGE_URL;
+  if (bridgeUrl) {
+    this.browser = await chromium.connectOverCDP(bridgeUrl);
+    this.context = this.browser.contexts()[0] ?? await this.browser.newContext({
+      userAgent: this.opts.userAgent ?? DEFAULT_USER_AGENT,
+      viewport: { width: 1920, height: 1080 },
+      locale: 'en-US',
+    });
+    return;
+  }
+  // ...fallback to local chromium.launch() as today
+}
+```
+
+The browser-bridge container already ships the stealth args deepdive's `STEALTH_ARGS` lists (`--disable-blink-features=AutomationControlled`, the realistic viewport, locale, font-render hinting), so when connected over CDP you can drop deepdive's local args.
+
+### Raw CDP
+
+If you don't want a Playwright/Puppeteer dependency at all, browser-bridge speaks the wire protocol directly. Fetch the WebSocket URL from `/json/version`, open a socket, and send framed JSON-RPC:
+
+```bash
+# 1. Discover the WebSocket debugger URL
+curl -s http://localhost:9222/json/version | jq -r .webSocketDebuggerUrl
+# ws://localhost:9222/devtools/browser/4b3f...
+```
+
+```jsonc
+// 2. Send a CDP command over that socket — minimal Page.navigate
+{ "id": 1, "method": "Page.navigate", "params": { "url": "https://example.com" } }
+
+// Response
+{ "id": 1, "result": { "frameId": "ABCD...", "loaderId": "1234..." } }
+```
+
+See the [Chrome DevTools Protocol docs](https://chromedevtools.github.io/devtools-protocol/) for the full method surface (`Page.*`, `Network.*`, `Runtime.evaluate`, `DOM.*`, etc.).
 
 ### Connect from an MCP browser tool
 
