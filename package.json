@@ -9,7 +9,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "puppeteer-core": "^25.0.4",
+    "puppeteer-core": "^25.1.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
