@@ -27,8 +27,10 @@ Bundling a browser into every agent / scraper / MCP server / test runner is over
 - **Realistic browser args** — 1920×1080 viewport, `en-US,en` lang, accelerated 2D canvas, WebGL on, font-render hinting set. Many "headless" containers fail bot checks because they ship without these; we ship with them.
 - **Optional VPN proxy** — set `HTTPS_PROXY` or `HTTP_PROXY` to route Chromium's traffic through a VPN sidecar (Gluetun, etc.). Supported out of the box.
 - **Non-root** — runs as the `browser` user, not root. CDP escapes don't get privilege.
-- **Healthchecked** — Docker-level healthcheck hits `/json/version` every 15s.
-- **Heartbeat logs** — one log line per minute confirming the browser is still connected. Pair with restart policy for self-recovery.
+- **CDP origin lock** — `--remote-allow-origins` defaults to loopback origins instead of `*`, closing the DNS-rebinding / cross-origin CDP hijack hole. CDP libraries (Playwright, Puppeteer) send no Origin header and are unaffected; override with `CDP_ALLOWED_ORIGIN` if your client needs one.
+- **Idle page reaper** — clients that die without closing their tabs no longer leak them. Idle blank tabs, pages idle past a TTL, and pages beyond a hard count cap get closed; idle is measured from last *navigation*, so an actively reused page is never reaped. All tunable.
+- **Health + metrics** — `/healthz` (CDP-connection health with a cached deep page-load check) and `/metrics` (pages open/created/reaped, nav count, uptime) on container-internal `:9224`. The Docker healthcheck hits `/healthz`, so "unhealthy" means the browser is actually gone — not just that a TCP port answers.
+- **Heartbeat logs** — one log line per minute with page/nav/reap counts. Pair with restart policy for self-recovery.
 
 ## Use it
 
@@ -106,10 +108,30 @@ The CDP endpoint `http://localhost:9222/json/version` and `ws://localhost:9222/d
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Which Chromium binary to launch (rarely needs overriding). |
 | `HTTPS_PROXY` | unset | Outbound proxy passed to Chromium as `--proxy-server`. |
 | `HTTP_PROXY` | unset | Same as `HTTPS_PROXY`; either works. |
+| `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated Origin header values allowed on CDP websocket connections (`--remote-allow-origins`). Most CDP clients send no Origin header and don't need this. |
+| `BRIDGE_HEALTH_PORT` | `9224` | Health/metrics port (binds `127.0.0.1` inside the container). |
+| `BRIDGE_REAP_INTERVAL_MS` | `30000` | How often the page reaper runs. |
+| `BRIDGE_BLANK_TTL_MS` | `120000` | Reap `about:blank` tabs idle this long. |
+| `BRIDGE_MAX_IDLE_MS` | `900000` | Reap any page with no navigation for this long (15m). Raise it if your clients hold pages open while working. |
+| `BRIDGE_MAX_PAGES` | `25` | Hard page-count cap; the most-idle pages beyond it are reaped. |
 
 Ports:
 
-- **9222** (TCP) — CDP entry point. The image's `EXPOSE` and `HEALTHCHECK` both target this.
+- **9222** (TCP) — CDP entry point. The image's `EXPOSE` targets this.
+- **9224** (TCP, container-internal) — `/healthz` + `/metrics`, bound to `127.0.0.1` inside the container. The Docker `HEALTHCHECK` hits it; it is intentionally not reachable from outside the container.
+
+## Health & metrics
+
+```bash
+docker exec <container> curl -s http://127.0.0.1:9224/healthz
+# {"ok":true,"connected":true,"pageCheck":"ok","pagesOpen":2}
+
+docker exec <container> curl -s http://127.0.0.1:9224/metrics
+# {"uptimeSec":4211,"pagesOpen":2,"pagesCreated":17,"pagesReaped":3,
+#  "navCount":42,"healthChecks":280,"lastReapAt":1765500000000,"connected":true}
+```
+
+`/healthz` returns `503` only when the CDP connection is gone (restart the container). A wedged-but-connected Chrome shows up as `"pageCheck":"degraded"` — the deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute.
 
 ## Image tags
 
