@@ -12,6 +12,48 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-11
+
+Upstreams the production hardening this image has been running inside the
+askalf platform fleet since 2026-06-10 — the public image and the deployed
+bridge are aligned again.
+
+### Added
+
+- **Health + metrics server** on container-internal `127.0.0.1:9224`
+  (`BRIDGE_HEALTH_PORT`): `GET /healthz` returns 200 while the CDP
+  connection is live (503 otherwise) and carries a cached deep page-load
+  check (`pageCheck: ok|degraded`, refreshed at most every 60s);
+  `GET /metrics` reports pagesOpen / pagesCreated / pagesReaped /
+  navCount / uptime.
+- **Idle page reaper** — reclaims tabs leaked by clients that die without
+  closing them: idle `about:blank` tabs after `BRIDGE_BLANK_TTL_MS`
+  (default 2m), any page with no navigation for `BRIDGE_MAX_IDLE_MS`
+  (default 15m), and the most-idle pages beyond the `BRIDGE_MAX_PAGES`
+  hard cap (default 25). Idle is measured from last navigation, not
+  creation, so actively reused pages are never reaped. Cadence via
+  `BRIDGE_REAP_INTERVAL_MS` (default 30s).
+- **Page target tracking + navigation logging** — one log line per
+  navigation; heartbeat now reports page/nav/reap counts.
+
+### Changed
+
+- **Docker `HEALTHCHECK` now hits `:9224/healthz`** instead of
+  `:9222/json/version` — "healthy" now means the launcher's CDP
+  connection is actually alive, not just that a TCP port answers.
+- `--disable-dev-shm-usage` removed from the Chromium args: run the
+  container with `--shm-size=512m` (or compose `shm_size`) as the README
+  has always instructed — the flag forced page buffers to slower
+  /tmp-on-disk and could fill the writable layer under load.
+
+### Security
+
+- **CDP origin lock** — `--remote-allow-origins` no longer uses `*`; it
+  defaults to loopback origins, closing a DNS-rebinding / cross-origin
+  CDP hijack vector. CDP libraries (Playwright, Puppeteer, MCP browser
+  tools) send no Origin header and are unaffected; browser-based
+  DevTools frontends on other origins need `CDP_ALLOWED_ORIGIN`.
+
 ## [0.0.1] - 2026-05-09
 
 Initial release. Extracted from a private monorepo where the same image

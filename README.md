@@ -1,5 +1,7 @@
 # browser-bridge
 
+> _browser-bridge — own your browser — stealth headless Chromium, your CDP endpoint. Part of **[Own Your Stack](https://github.com/askalf)** — own your AI infrastructure instead of renting it by the token._
+
 > Stealth headless Chromium in a container. Exposes Chrome DevTools Protocol (CDP) on port 9222. Connect from Playwright, Puppeteer, MCP browser tools, or any agent that wants a remote browser without bundling one.
 
 ```bash
@@ -27,10 +29,12 @@ Bundling a browser into every agent / scraper / MCP server / test runner is over
 - **Realistic browser args** — 1920×1080 viewport, `en-US,en` lang, accelerated 2D canvas, WebGL on, font-render hinting set. Many "headless" containers fail bot checks because they ship without these; we ship with them.
 - **Optional VPN proxy** — set `HTTPS_PROXY` or `HTTP_PROXY` to route Chromium's traffic through a VPN sidecar (Gluetun, etc.). Supported out of the box.
 - **Non-root** — runs as the `browser` user, not root. CDP escapes don't get privilege.
-- **Healthchecked** — Docker-level healthcheck hits `/json/version` every 15s.
-- **Heartbeat logs** — one log line per minute confirming the browser is still connected. Pair with restart policy for self-recovery.
+- **CDP origin lock** — `--remote-allow-origins` defaults to loopback origins instead of `*`, closing the DNS-rebinding / cross-origin CDP hijack hole. CDP libraries (Playwright, Puppeteer) send no Origin header and are unaffected; override with `CDP_ALLOWED_ORIGIN` if your client needs one.
+- **Idle page reaper** — clients that die without closing their tabs no longer leak them. Idle blank tabs, pages idle past a TTL, and pages beyond a hard count cap get closed; idle is measured from last *navigation*, so an actively reused page is never reaped. All tunable.
+- **Health + metrics** — `/healthz` (CDP-connection health with a cached deep page-load check) and `/metrics` (pages open/created/reaped, nav count, uptime) on container-internal `:9224`. The Docker healthcheck hits `/healthz`, so "unhealthy" means the browser is actually gone — not just that a TCP port answers.
+- **Heartbeat logs** — one log line per minute with page/nav/reap counts. Pair with restart policy for self-recovery.
 
-## Use it
+## Usage
 
 ### Standalone
 
@@ -95,6 +99,75 @@ const browser = await puppeteer.connect({
 });
 ```
 
+### Connect from hands
+
+[hands](https://github.com/askalf/hands) is a computer-use agent that mostly drives the local desktop directly, but its `read_page` tool fetches URLs over plain HTTP. Pointing it at a browser-bridge gives it a real Chromium for the cases where a server bounces non-browser User-Agents or where the page is a JS-heavy SPA:
+
+```ts
+// hands/src/tools/read-page.ts — variant using browser-bridge instead of fetch()
+import { chromium } from 'playwright';
+
+const browser = await chromium.connectOverCDP(
+  process.env.BROWSER_BRIDGE_URL ?? 'http://localhost:9222',
+);
+const ctx = browser.contexts()[0] ?? await browser.newContext();
+const page = await ctx.newPage();
+try {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  const html = await page.content();
+  return { text: cleanHtml(html), meta: { url, finalUrl: page.url(), status: 200 } };
+} finally {
+  await page.close();
+}
+```
+
+Set `BROWSER_BRIDGE_URL` in the hands environment to the bridge container's address (e.g. `http://browser-bridge:9222` on a shared docker network).
+
+### Connect from deepdive
+
+[deepdive](https://github.com/askalf/deepdive) is a research agent whose `BrowserSession` (`src/browser.ts`) launches a local Playwright Chromium by default. Swap `chromium.launch()` for `chromium.connectOverCDP()` to share one browser-bridge across many deepdive runs:
+
+```ts
+// deepdive/src/browser.ts — BrowserSession.start() using browser-bridge
+import { chromium } from 'playwright';
+
+async start(): Promise<void> {
+  const bridgeUrl = process.env.BROWSER_BRIDGE_URL;
+  if (bridgeUrl) {
+    this.browser = await chromium.connectOverCDP(bridgeUrl);
+    this.context = this.browser.contexts()[0] ?? await this.browser.newContext({
+      userAgent: this.opts.userAgent ?? DEFAULT_USER_AGENT,
+      viewport: { width: 1920, height: 1080 },
+      locale: 'en-US',
+    });
+    return;
+  }
+  // ...fallback to local chromium.launch() as today
+}
+```
+
+The browser-bridge container already ships the stealth args deepdive's `STEALTH_ARGS` lists (`--disable-blink-features=AutomationControlled`, the realistic viewport, locale, font-render hinting), so when connected over CDP you can drop deepdive's local args.
+
+### Raw CDP
+
+If you don't want a Playwright/Puppeteer dependency at all, browser-bridge speaks the wire protocol directly. Fetch the WebSocket URL from `/json/version`, open a socket, and send framed JSON-RPC:
+
+```bash
+# 1. Discover the WebSocket debugger URL
+curl -s http://localhost:9222/json/version | jq -r .webSocketDebuggerUrl
+# ws://localhost:9222/devtools/browser/4b3f...
+```
+
+```jsonc
+// 2. Send a CDP command over that socket — minimal Page.navigate
+{ "id": 1, "method": "Page.navigate", "params": { "url": "https://example.com" } }
+
+// Response
+{ "id": 1, "result": { "frameId": "ABCD...", "loaderId": "1234..." } }
+```
+
+See the [Chrome DevTools Protocol docs](https://chromedevtools.github.io/devtools-protocol/) for the full method surface (`Page.*`, `Network.*`, `Runtime.evaluate`, `DOM.*`, etc.).
+
 ### Connect from an MCP browser tool
 
 The CDP endpoint `http://localhost:9222/json/version` and `ws://localhost:9222/devtools/...` are standard. Most MCP browser servers accept a `browserURL` config option — point it at this container.
@@ -106,10 +179,30 @@ The CDP endpoint `http://localhost:9222/json/version` and `ws://localhost:9222/d
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Which Chromium binary to launch (rarely needs overriding). |
 | `HTTPS_PROXY` | unset | Outbound proxy passed to Chromium as `--proxy-server`. |
 | `HTTP_PROXY` | unset | Same as `HTTPS_PROXY`; either works. |
+| `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated Origin header values allowed on CDP websocket connections (`--remote-allow-origins`). Most CDP clients send no Origin header and don't need this. |
+| `BRIDGE_HEALTH_PORT` | `9224` | Health/metrics port (binds `127.0.0.1` inside the container). |
+| `BRIDGE_REAP_INTERVAL_MS` | `30000` | How often the page reaper runs. |
+| `BRIDGE_BLANK_TTL_MS` | `120000` | Reap `about:blank` tabs idle this long. |
+| `BRIDGE_MAX_IDLE_MS` | `900000` | Reap any page with no navigation for this long (15m). Raise it if your clients hold pages open while working. |
+| `BRIDGE_MAX_PAGES` | `25` | Hard page-count cap; the most-idle pages beyond it are reaped. |
 
 Ports:
 
-- **9222** (TCP) — CDP entry point. The image's `EXPOSE` and `HEALTHCHECK` both target this.
+- **9222** (TCP) — CDP entry point. The image's `EXPOSE` targets this.
+- **9224** (TCP, container-internal) — `/healthz` + `/metrics`, bound to `127.0.0.1` inside the container. The Docker `HEALTHCHECK` hits it; it is intentionally not reachable from outside the container.
+
+## Health & metrics
+
+```bash
+docker exec <container> curl -s http://127.0.0.1:9224/healthz
+# {"ok":true,"connected":true,"pageCheck":"ok","pagesOpen":2}
+
+docker exec <container> curl -s http://127.0.0.1:9224/metrics
+# {"uptimeSec":4211,"pagesOpen":2,"pagesCreated":17,"pagesReaped":3,
+#  "navCount":42,"healthChecks":280,"lastReapAt":1765500000000,"connected":true}
+```
+
+`/healthz` returns `503` only when the CDP connection is gone (restart the container). A wedged-but-connected Chrome shows up as `"pageCheck":"degraded"` — the deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute.
 
 ## Image tags
 
@@ -134,17 +227,23 @@ Ports:
 
 MIT — see [LICENSE](LICENSE).
 
-## Also by askalf
+## Own Your Stack
 
-| Project | What it does |
-|---------|-------------|
-| [arnie](https://github.com/askalf/arnie) | Portable IT troubleshooting companion. Networking, AD, Windows Update, package managers, log triage, hardware checks. |
-| [brio](https://github.com/askalf/brio) | Capability layer for AI workloads — semantic cache, cost tiering, policy. Sits in front of any Anthropic-compat endpoint. |
-| [claude-bridge](https://github.com/askalf/claude-bridge) | Bridge Claude Code sessions to Discord. |
-| [dario](https://github.com/askalf/dario) | Local LLM router. Use your Claude Max/Pro subscription as an API. |
-| [deepdive](https://github.com/askalf/deepdive) | Local research agent. Plan → search → fetch → extract → synthesize. Cited answers. |
-| [git-providers](https://github.com/askalf/git-providers) | Unified GitHub + GitLab + Bitbucket Cloud REST clients behind one GitProvider interface. Plus a 44-entry api-key-provider taxonomy. |
-| [hands](https://github.com/askalf/hands) | Cross-platform computer-use agent. Mouse, keyboard, screen. |
-| [install-kit](https://github.com/askalf/install-kit) | curl-pipe-bash template for self-hosted Docker apps. |
-| [pgflex](https://github.com/askalf/pgflex) | One Postgres API. Two modes (real PG ↔ PGlite WASM). |
-| [redisflex](https://github.com/askalf/redisflex) | One Redis API. Two modes (ioredis ↔ in-process). |
+Part of **[Own Your Stack](https://github.com/askalf)** — open tools for owning your AI infrastructure instead of renting it by the token. One subscription. Your box. Your terms.
+
+- **[dario](https://github.com/askalf/dario)** — own your routing
+- **[hybrid](https://github.com/askalf/hybrid)** — own your inference
+- **[deja](https://github.com/askalf/deja)** — own your LLM cache
+- **[deepdive](https://github.com/askalf/deepdive)** — own your research
+- **[hands](https://github.com/askalf/hands)** — own your computer-use
+- **[agent](https://github.com/askalf/agent)** — own your fleet
+- **[browser-bridge](https://github.com/askalf/browser-bridge)** — own your browser _(you are here)_
+- **[warden](https://github.com/askalf/warden)** — own your agent security
+- **[canon](https://github.com/askalf/canon)** — own your agent skills
+- **[keeper](https://github.com/askalf/keeper)** — own your agent secrets
+- **[claude-sync](https://github.com/askalf/claude-sync)** — own your sessions
+- **[amnesia](https://github.com/askalf/amnesia)** — own your search
+- **[askalf platform](https://askalf.org)** — own your operation
+
+---
+Part of **[Own Your Stack](https://github.com/askalf)** — own your AI infrastructure instead of renting it. Built by Thomas Sprayberry.
