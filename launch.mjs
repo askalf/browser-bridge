@@ -35,12 +35,51 @@
  *                                 reused pages reset their clock.
  *   BRIDGE_MAX_PAGES            — hard page-count cap; most-idle pages
  *                                 beyond it are reaped. Default 25.
+ *   BROWSER_SESSION_ID          — optional caller-supplied session ID.
+ *                                 Same ID -> same UA; different IDs
+ *                                 spread across the UA pool. Falls back
+ *                                 to a per-process seed when unset.
  */
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+
+// Rotating UA pool — latest Chrome stable across the major desktop
+// and mobile platforms. Picked deterministically per session so a
+// given session keeps a stable fingerprint across reconnects, while
+// different sessions spread across the pool to avoid one UA dominating
+// a target's logs. Bump the Chrome major as new stable ships.
+const UA_POOL = [
+  // Windows 10
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+  // macOS
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+  // Linux
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+  // Android (Pixel 8)
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36',
+  // iOS (Chrome on iPhone reports as CriOS)
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/132.0.0.0 Mobile/15E148 Safari/604.1',
+];
+
+// Per-process fallback seed — hashed once so we don't recompute on
+// every pickUa() call. Used when no explicit session ID is supplied.
+const FALLBACK_SEED = `${process.pid}:${Date.now()}`;
+
+function pickUa(sessionId) {
+  const seed = sessionId && sessionId.length > 0 ? sessionId : FALLBACK_SEED;
+  const digest = createHash('sha256').update(seed).digest();
+  // Read a 32-bit slice — plenty of entropy for a 5-item pool and
+  // keeps the modulo bias far below anything observable.
+  const idx = digest.readUInt32BE(0) % UA_POOL.length;
+  return UA_POOL[idx];
+}
+
+const SESSION_ID = process.env.BROWSER_SESSION_ID ?? '';
+const USER_AGENT = pickUa(SESSION_ID);
 
 const stealth = StealthPlugin();
 // Enable every evasion the plugin ships with. The default set is partial
@@ -129,6 +168,7 @@ const args = [
   '--enable-webgl',
   '--enable-accelerated-2d-canvas',
   '--font-render-hinting=medium',
+  `--user-agent=${USER_AGENT}`,
 ];
 
 const proxy = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY;
@@ -139,6 +179,7 @@ if (proxy) {
 
 console.log(`[browser-bridge] CDP allowed origins: ${ALLOWED_ORIGINS}`);
 console.log('[browser-bridge] launching stealth Chromium...');
+console.log(`[browser-bridge] UA: ${USER_AGENT}`);
 
 let browser;
 try {
