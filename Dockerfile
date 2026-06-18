@@ -47,8 +47,10 @@ EXPOSE 9222
 
 # Chromium binds the debugger to 127.0.0.1 by default on newer versions;
 # socat fronts it on 0.0.0.0:9222 so other containers can reach it. The
-# healthcheck hits /json/version (canonical CDP endpoint).
-HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -sf http://127.0.0.1:9222/json/version || exit 1
+# healthcheck hits the launcher's /healthz on :9224 (container-internal),
+# which checks the CDP connection itself — not just TCP liveness — and
+# carries a deep page-load check in its body.
+HEALTHCHECK --interval=15s --timeout=10s --start-period=15s --retries=3 \
+  CMD curl -sf http://127.0.0.1:9224/healthz || exit 1
 
 CMD ["node", "/app/launch.mjs"]
