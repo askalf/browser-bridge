@@ -241,6 +241,8 @@ Part of **[Own Your Stack](https://github.com/askalf)** — open tools for ownin
 - **[warden](https://github.com/askalf/warden)** — own your agent security
 - **[canon](https://github.com/askalf/canon)** — own your agent skills
 - **[keeper](https://github.com/askalf/keeper)** — own your agent secrets
+- **[cordon](https://github.com/askalf/cordon)** — own your prompts
+- **[picket](https://github.com/askalf/picket)** — own your agent browser
 - **[claude-sync](https://github.com/askalf/claude-sync)** — own your sessions
 - **[amnesia](https://github.com/askalf/amnesia)** — own your search
 - **[askalf platform](https://askalf.org)** — own your operation
