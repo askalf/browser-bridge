@@ -12,6 +12,46 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-01
+
+The socat TCP relay that fronted Chromium's loopback-bound CDP on
+`0.0.0.0:9222` is replaced by a built-in HTTP-aware proxy
+(`cdp-proxy.mjs`). Default behavior is unchanged — same port, same
+open access, same pass-through semantics — but the bridge can now do
+things a dumb byte-pipe can't.
+
+### Added
+
+- **Token auth (`BRIDGE_TOKEN`)** — when set, every CDP HTTP request and
+  WebSocket upgrade must present the token via `Authorization: Bearer`,
+  `X-Bridge-Token`, or `?token=` (browserless-style connection string).
+  Comparison is timing-safe; the token is stripped before anything is
+  forwarded to Chromium. Unset = open, exactly as before.
+- **Connect by hostname** — the proxy presents a loopback Host to
+  Chromium (whose Host check rejects DNS names) and rewrites
+  `webSocketDebuggerUrl` / `devtoolsFrontendUrl` in discovery responses
+  back to the host the client used, so
+  `connectOverCDP('http://browser:9222')` works with a compose service
+  name — no more digging up the container IP. Hostname Hosts are
+  accepted when token auth is on (auth defeats DNS rebinding) or with
+  explicit `BRIDGE_ALLOW_HOSTNAMES=1`; without either, the bridge keeps
+  Chromium's IP/localhost-only posture.
+- **Root-path WebSocket resolution** — an upgrade to `/` is resolved to
+  the current browser target server-side, so
+  `puppeteer.connect({ browserWSEndpoint: 'ws://host:9222/?token=…' })`
+  is a one-liner (no `/json/version` discovery round-trip).
+- **New metrics** on `/metrics`: `authFailures`, `hostBlocked`,
+  `cdpConnectionsTotal`, `cdpConnectionsActive`.
+- **Unit tests** (`npm test`, zero-dep `node:test` against a stub CDP
+  upstream) + a unit-test job in CI.
+
+### Changed
+
+- socat is no longer installed in the image; the launcher's proxy owns
+  `0.0.0.0:9222`. After the WebSocket handshake the proxy is a
+  transparent byte-pipe, so there is no per-message overhead on the CDP
+  hot path.
+
 ## [0.1.0] - 2026-06-11
 
 Upstreams the production hardening this image has been running inside the

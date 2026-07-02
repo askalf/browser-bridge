@@ -1,10 +1,13 @@
 {
   "name": "browser-bridge-image",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Build-time package manifest for the browser-bridge Docker image. Not published to npm — install only resolves puppeteer-extra deps inside the container.",
   "type": "module",
   "license": "MIT",
+  "scripts": {
+    "test": "node --test test/cdp-proxy.test.mjs"
+  },
   "engines": {
     "node": ">=22.0.0"
   },

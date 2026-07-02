@@ -25,7 +25,9 @@ Bundling a browser into every agent / scraper / MCP server / test runner is over
 ## What you get
 
 - **Stealth** — puppeteer-extra with the full evasion set: `navigator.webdriver`, `navigator.plugins`, `navigator.languages`, WebGL vendor, Chrome runtime, iframe quirks, the works. `--enable-automation` is dropped from the default args. Passes the common bot-detection checks.
-- **CDP on 0.0.0.0:9222** — Chromium binds to localhost on recent versions; we use socat to expose it on the wildcard so other containers (or your dev machine) can reach it.
+- **CDP on 0.0.0.0:9222** — Chromium binds to localhost on recent versions; a built-in HTTP-aware proxy fronts it on the wildcard so other containers (or your dev machine) can reach it.
+- **Optional token auth** — set `BRIDGE_TOKEN` and every CDP request/WebSocket must present it (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). The one thing raw CDP has always been missing. Off by default.
+- **Connect by service name** — Chromium rejects DNS names in the Host header, which is why remote-CDP setups usually make you dig up the container IP. The proxy bridges that: `connectOverCDP('http://browser:9222')` works with a compose service name (with token auth on, or via `BRIDGE_ALLOW_HOSTNAMES=1`).
 - **Realistic browser args** — 1920×1080 viewport, `en-US,en` lang, accelerated 2D canvas, WebGL on, font-render hinting set. Many "headless" containers fail bot checks because they ship without these; we ship with them.
 - **Optional VPN proxy** — set `HTTPS_PROXY` or `HTTP_PROXY` to route Chromium's traffic through a VPN sidecar (Gluetun, etc.). Supported out of the box.
 - **Non-root** — runs as the `browser` user, not root. CDP escapes don't get privilege.
@@ -172,6 +174,42 @@ See the [Chrome DevTools Protocol docs](https://chromedevtools.github.io/devtool
 
 The CDP endpoint `http://localhost:9222/json/version` and `ws://localhost:9222/devtools/...` are standard. Most MCP browser servers accept a `browserURL` config option — point it at this container.
 
+## Authentication
+
+CDP has no auth story of its own — anyone who can open a socket to `:9222` owns the browser. By default the bridge keeps the classic open behavior (bind it to a private network). Set `BRIDGE_TOKEN` to require a shared secret on every request and WebSocket upgrade instead:
+
+```yaml
+services:
+  browser:
+    image: ghcr.io/askalf/browser-bridge:latest
+    expose: ["9222"]
+    shm_size: '512m'
+    environment:
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN}
+```
+
+The token can travel three ways — `Authorization: Bearer <token>`, an `X-Bridge-Token` header, or a `?token=` query parameter. Comparison is timing-safe, the token is stripped before anything reaches Chromium, and failures are counted in `/metrics` (`authFailures`).
+
+```ts
+// Playwright — ws endpoint with the token in the query string.
+// The bridge resolves the root path to the browser target server-side,
+// so you don't need the /devtools/browser/<uuid> discovery round-trip.
+const browser = await chromium.connectOverCDP('ws://browser:9222/?token=' + process.env.BRIDGE_TOKEN);
+
+// Puppeteer — same one-liner
+const browser = await puppeteer.connect({
+  browserWSEndpoint: `ws://browser:9222/?token=${process.env.BRIDGE_TOKEN}`,
+});
+```
+
+```bash
+# curl / raw CDP
+curl -s "http://localhost:9222/json/version?token=$BRIDGE_TOKEN"
+curl -s -H "X-Bridge-Token: $BRIDGE_TOKEN" http://localhost:9222/json/list
+```
+
+With a token set you can also connect by DNS/service name (`ws://browser:9222/...` above): Chromium's own Host-header check — which rejects DNS names and doubles as DNS-rebinding protection — is handled by the proxy, and auth covers the rebinding risk. Without a token the bridge keeps Chromium's IP/localhost-only Host behavior; set `BRIDGE_ALLOW_HOSTNAMES=1` if you want service-name connections on an open bridge and accept that trade-off.
+
 ## Configuration
 
 | Env var | Default | Effect |
@@ -180,6 +218,8 @@ The CDP endpoint `http://localhost:9222/json/version` and `ws://localhost:9222/d
 | `HTTPS_PROXY` | unset | Outbound proxy passed to Chromium as `--proxy-server`. |
 | `HTTP_PROXY` | unset | Same as `HTTPS_PROXY`; either works. |
 | `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated Origin header values allowed on CDP websocket connections (`--remote-allow-origins`). Most CDP clients send no Origin header and don't need this. |
+| `BRIDGE_TOKEN` | unset | Shared secret required on every CDP request/WebSocket when set (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). Unset = open, pre-0.2.0 behavior. |
+| `BRIDGE_ALLOW_HOSTNAMES` | unset | Accept DNS-name Host headers (compose service names) *without* a token. Not needed when `BRIDGE_TOKEN` is set. Opt-in because Chromium's Host check doubles as DNS-rebinding protection. |
 | `BRIDGE_HEALTH_PORT` | `9224` | Health/metrics port (binds `127.0.0.1` inside the container). |
 | `BRIDGE_REAP_INTERVAL_MS` | `30000` | How often the page reaper runs. |
 | `BRIDGE_BLANK_TTL_MS` | `120000` | Reap `about:blank` tabs idle this long. |
@@ -199,7 +239,9 @@ docker exec <container> curl -s http://127.0.0.1:9224/healthz
 
 docker exec <container> curl -s http://127.0.0.1:9224/metrics
 # {"uptimeSec":4211,"pagesOpen":2,"pagesCreated":17,"pagesReaped":3,
-#  "navCount":42,"healthChecks":280,"lastReapAt":1765500000000,"connected":true}
+#  "navCount":42,"healthChecks":280,"lastReapAt":1765500000000,
+#  "authFailures":0,"hostBlocked":0,"cdpConnectionsTotal":5,
+#  "cdpConnectionsActive":1,"connected":true}
 ```
 
 `/healthz` returns `503` only when the CDP connection is gone (restart the container). A wedged-but-connected Chrome shows up as `"pageCheck":"degraded"` — the deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute.
@@ -214,7 +256,8 @@ docker exec <container> curl -s http://127.0.0.1:9224/metrics
 
 - Runs as non-root (`browser:browser`).
 - `--no-sandbox` is set inside the container because Chromium's setuid sandbox doesn't work in unprivileged containers; the broader sandbox is the Linux user namespace the container provides.
-- CDP is exposed without authentication — anyone who can reach `:9222` can drive the browser. **Bind to a private network** (docker-compose service network, internal VPN, etc.). Don't expose `:9222` to the public internet.
+- CDP is unauthenticated **by default** — anyone who can reach `:9222` can drive the browser. **Bind to a private network** (docker-compose service network, internal VPN, etc.), and set `BRIDGE_TOKEN` for defense in depth. Even with a token, don't expose `:9222` to the public internet — CDP was never designed to be an internet-facing protocol.
+- Without a token, DNS-name Host headers are refused (Chromium's own anti-DNS-rebinding posture, preserved by the proxy); IP and localhost Hosts work as always.
 - Every Chromium command is exposed via CDP. Treat the CDP endpoint with the same care you'd treat raw shell on the container.
 
 ## What it isn't
