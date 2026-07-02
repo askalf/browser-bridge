@@ -12,12 +12,12 @@ LABEL org.opencontainers.image.source="https://github.com/askalf/browser-bridge"
 LABEL org.opencontainers.image.description="browser-bridge — stealth headless Chromium exposing CDP on port 9222"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# Install Chromium + supporting fonts + socat (for the loopback->wildcard
-# CDP forward) + ca-certs (HTTPS) + curl (used by the healthcheck).
+# Install Chromium + supporting fonts + ca-certs (HTTPS) + curl (used by
+# the healthcheck). The loopback->wildcard CDP forward is handled by the
+# launcher's built-in proxy (cdp-proxy.mjs) — no socat needed.
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
       chromium \
-      socat \
       fonts-liberation \
       fonts-noto-color-emoji \
       ca-certificates \
@@ -32,7 +32,7 @@ WORKDIR /app
 COPY package.json package-lock.json* /app/
 RUN npm install --omit=dev
 
-COPY launch.mjs /app/launch.mjs
+COPY launch.mjs cdp-proxy.mjs /app/
 
 # Run as a non-root user so a CDP escape can't escalate.
 RUN groupadd -r browser && useradd -r -g browser browser && \
@@ -46,8 +46,8 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 EXPOSE 9222
 
 # Chromium binds the debugger to 127.0.0.1 by default on newer versions;
-# socat fronts it on 0.0.0.0:9222 so other containers can reach it. The
-# healthcheck hits the launcher's /healthz on :9224 (container-internal),
+# the built-in CDP proxy fronts it on 0.0.0.0:9222 so other containers can
+# reach it. The healthcheck hits /healthz on :9224 (container-internal),
 # which checks the CDP connection itself — not just TCP liveness — and
 # carries a deep page-load check in its body.
 HEALTHCHECK --interval=15s --timeout=10s --start-period=15s --retries=3 \

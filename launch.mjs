@@ -1,14 +1,16 @@
 /**
- * browser-bridge launcher — stealth Chromium + socat-fronted CDP.
+ * browser-bridge launcher — stealth Chromium + proxy-fronted CDP.
  *
  * Steps in order:
  *   1. Configure puppeteer-extra's stealth plugin with the full evasion
  *      set so navigator.webdriver, navigator.plugins, navigator.languages,
  *      WebGL vendor strings, etc. all look like a real Chrome session.
- *   2. Spawn socat to forward 0.0.0.0:9222 -> 127.0.0.1:9223. Recent
- *      Chromium versions bind --remote-debugging-port to localhost
- *      regardless of --remote-debugging-address. socat is the simplest
- *      portable workaround.
+ *   2. Front 127.0.0.1:9223 on 0.0.0.0:9222 with the built-in CDP proxy
+ *      (cdp-proxy.mjs). Recent Chromium versions bind
+ *      --remote-debugging-port to localhost regardless of
+ *      --remote-debugging-address; the proxy bridges that, and adds
+ *      optional token auth, hostname Host support, and root-path
+ *      WebSocket resolution on top.
  *   3. puppeteer.launch(...) on port 9223 with realistic args.
  *   4. Track page targets + navigations; reap orphaned/idle pages so a
  *      long-lived shared browser doesn't leak memory when clients die
@@ -26,6 +28,17 @@
  *   CDP_ALLOWED_ORIGIN          — comma-separated Origin header values
  *                                 allowed on CDP websocket connections.
  *                                 Default: loopback origins only (no '*').
+ *   BRIDGE_TOKEN                — shared secret; when set, every CDP
+ *                                 request/WebSocket must present it via
+ *                                 `Authorization: Bearer`, `X-Bridge-Token`,
+ *                                 or `?token=`. Unset = open (default,
+ *                                 matches pre-0.2.0 behavior).
+ *   BRIDGE_ALLOW_HOSTNAMES      — set to accept DNS-name Host headers
+ *                                 (e.g. compose service names) WITHOUT a
+ *                                 token. Chromium's Host check doubles as
+ *                                 DNS-rebinding protection, so this is
+ *                                 opt-in; with BRIDGE_TOKEN set, hostnames
+ *                                 are always accepted.
  *   BRIDGE_HEALTH_PORT          — health/metrics port. Default 9224.
  *   BRIDGE_REAP_INTERVAL_MS     — reaper cadence. Default 30000.
  *   BRIDGE_BLANK_TTL_MS         — idle about:blank tab TTL. Default 120000.
@@ -41,11 +54,11 @@
  *                                 to a per-process seed when unset.
  */
 
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import http from 'node:http';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { createCdpProxy } from './cdp-proxy.mjs';
 
 // Rotating UA pool — latest Chrome stable across the major desktop
 // and mobile platforms. Picked deterministically per session so a
@@ -108,7 +121,10 @@ puppeteer.use(stealth);
 
 const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH ?? '/usr/bin/chromium';
 const INTERNAL_PORT = 9223; // chromium binds here (127.0.0.1)
-const EXTERNAL_PORT = 9222; // socat exposes this on 0.0.0.0
+const EXTERNAL_PORT = 9222; // the CDP proxy exposes this on 0.0.0.0
+
+const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN ?? '';
+const ALLOW_HOSTNAMES = !!process.env.BRIDGE_ALLOW_HOSTNAMES;
 
 // CDP origin lock: Chromium's --remote-allow-origins validates the Origin
 // header on incoming DevTools/WebSocket connections. '*' lets ANY origin
@@ -134,15 +150,6 @@ const REAP_INTERVAL_MS = parseInt(process.env.BRIDGE_REAP_INTERVAL_MS || '30000'
 const BLANK_TTL_MS = parseInt(process.env.BRIDGE_BLANK_TTL_MS || '120000', 10);
 const MAX_IDLE_MS = parseInt(process.env.BRIDGE_MAX_IDLE_MS || '900000', 10);
 const MAX_PAGES = parseInt(process.env.BRIDGE_MAX_PAGES || '25', 10);
-
-const socat = spawn('socat', [
-  `TCP-LISTEN:${EXTERNAL_PORT},fork,reuseaddr,bind=0.0.0.0`,
-  `TCP:127.0.0.1:${INTERNAL_PORT}`,
-], { stdio: 'inherit' });
-
-socat.on('error', (err) => {
-  console.error('[browser-bridge] socat failed:', err.message);
-});
 
 const args = [
   // Sandboxing is disabled because we run as a non-root user inside a
@@ -194,10 +201,9 @@ try {
 
   console.log('[browser-bridge] stealth Chromium running');
   console.log(`[browser-bridge] CDP (internal): ws://127.0.0.1:${INTERNAL_PORT}/...`);
-  console.log(`[browser-bridge] CDP (external): ws://0.0.0.0:${EXTERNAL_PORT}/... (via socat)`);
+  console.log(`[browser-bridge] CDP (external): ws://0.0.0.0:${EXTERNAL_PORT}/... (via cdp-proxy)`);
 } catch (err) {
   console.error('[browser-bridge] failed to launch:', err.message);
-  socat.kill();
   process.exit(1);
 }
 
@@ -212,6 +218,10 @@ const metrics = {
   pagesReaped: 0,
   healthChecks: 0,
   lastReapAt: 0,
+  authFailures: 0,
+  hostBlocked: 0,
+  cdpConnectionsTotal: 0,
+  cdpConnectionsActive: 0,
 };
 
 browser.on('targetcreated', (t) => {
@@ -237,6 +247,31 @@ browser.on('targetchanged', (t) => {
   } catch { /* target gone */ }
 });
 browser.on('targetdestroyed', (t) => { targets.delete(t); });
+
+// ── CDP front proxy: 0.0.0.0:9222 -> 127.0.0.1:9223 ────────────────
+// HTTP-aware replacement for the old socat relay: optional token auth,
+// hostname Host support, root-path WebSocket resolution. Transparent
+// byte-pipe after the WebSocket handshake.
+const cdpProxy = createCdpProxy({
+  internalPort: INTERNAL_PORT,
+  externalPort: EXTERNAL_PORT,
+  token: BRIDGE_TOKEN,
+  allowHostnames: ALLOW_HOSTNAMES,
+  onEvent: (event) => {
+    if (event === 'auth-failure') metrics.authFailures++;
+    else if (event === 'host-blocked') metrics.hostBlocked++;
+    else if (event === 'ws-open') { metrics.cdpConnectionsTotal++; metrics.cdpConnectionsActive++; }
+    else if (event === 'ws-close') metrics.cdpConnectionsActive = Math.max(0, metrics.cdpConnectionsActive - 1);
+  },
+  log: (msg) => console.log(`[browser-bridge] cdp-proxy: ${msg}`),
+});
+cdpProxy.on('error', (err) => console.error('[browser-bridge] CDP proxy error:', err.message));
+cdpProxy.listen(EXTERNAL_PORT, '0.0.0.0', () => {
+  const authMode = BRIDGE_TOKEN
+    ? 'token required'
+    : `open${ALLOW_HOSTNAMES ? ', hostname Hosts allowed' : ''} (set BRIDGE_TOKEN to require auth)`;
+  console.log(`[browser-bridge] CDP proxy on 0.0.0.0:${EXTERNAL_PORT} — auth: ${authMode}`);
+});
 
 // ── Reaper: reclaim leaked / abandoned pages ────────────────────────
 const reap = async () => {
@@ -313,6 +348,10 @@ const healthServer = http.createServer(async (req, res) => {
       navCount: metrics.navCount,
       healthChecks: metrics.healthChecks,
       lastReapAt: metrics.lastReapAt,
+      authFailures: metrics.authFailures,
+      hostBlocked: metrics.hostBlocked,
+      cdpConnectionsTotal: metrics.cdpConnectionsTotal,
+      cdpConnectionsActive: metrics.cdpConnectionsActive,
       connected,
     }));
     return;
@@ -336,12 +375,12 @@ const shutdown = async (signal) => {
   console.log(`[browser-bridge] ${signal} received, shutting down...`);
   clearInterval(reaperTimer);
   try { healthServer.close(); } catch { /* already closed */ }
+  try { cdpProxy.close(); } catch { /* already closed */ }
   try {
     await browser.close();
   } catch (err) {
     console.error('[browser-bridge] error closing browser:', err.message);
   }
-  socat.kill();
   process.exit(0);
 };
 process.on('SIGTERM', () => shutdown('SIGTERM'));
