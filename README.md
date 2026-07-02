@@ -262,7 +262,7 @@ docker exec <container> curl -s http://127.0.0.1:9224/metrics
 
 ## What it isn't
 
-- **Not a queue or scheduler.** It's just one browser. Run multiple containers + a queue (BullMQ, redisflex's InMemoryQueue, whatever) for parallelism.
+- **Not a queue or scheduler.** It's just one browser. Run multiple containers + a queue (BullMQ or similar) for parallelism.
 - **Not session-pinned.** All clients share the same Chromium instance. For session isolation, use Playwright/Puppeteer browser contexts.
 - **Not a Chrome extension host.** Headless Chromium doesn't load extensions reliably.
 
