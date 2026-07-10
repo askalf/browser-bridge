@@ -285,7 +285,7 @@ Part of **[Own Your Stack](https://github.com/askalf)** — open tools for ownin
 - **[cordon](https://github.com/askalf/cordon)** — own your prompts
 - **[picket](https://github.com/askalf/picket)** — own your agent browser
 - **[amnesia](https://github.com/askalf/amnesia)** — own your search
-- **[askalf platform](https://askalf.org)** — own your operation
+- **[askalf](https://askalf.org)** — own your operation: the AI operation that runs Sprayberry Labs
 
 ---
 Part of **[Own Your Stack](https://github.com/askalf)** — own your AI infrastructure instead of renting it. Built by Thomas Sprayberry.
