@@ -199,3 +199,107 @@ test('upstream down: HTTP gets 502, not a hang', async () => {
     proxy.close();
   }
 });
+
+// ── Isolated (broker) mode ──────────────────────────────────────────
+// A stub broker stands in for the session broker: acquire() hands back a
+// handle pointing at the stub Chromium upstream and records the calls, so the
+// proxy's routing + release semantics are asserted without a real browser.
+function makeStubBroker(upstreamPort) {
+  const calls = { acquire: [], releases: 0 };
+  let cap = false;
+  return {
+    calls,
+    setCap: (v) => { cap = v; },
+    broker: {
+      acquire: async (key, ephemeral) => {
+        calls.acquire.push({ key, ephemeral });
+        if (cap) throw new Error('cap reached');
+        return {
+          internalPort: upstreamPort,
+          wsPath: '/devtools/browser/stub-uuid-1234',
+          release: () => { calls.releases++; },
+        };
+      },
+    },
+  };
+}
+
+async function withBrokerProxy(opts, fn) {
+  const { server: upstream, state } = makeUpstream();
+  const upstreamPort = await listen(upstream);
+  const stub = makeStubBroker(upstreamPort);
+  const events = [];
+  const proxy = createCdpProxy({ externalPort: 0, broker: stub.broker, onEvent: (e) => events.push(e), ...opts });
+  const proxyPort = await listen(proxy);
+  try {
+    await fn({ proxyPort, upstreamPort, state, events, stub });
+  } finally {
+    proxy.close();
+    upstream.close();
+  }
+}
+
+test('broker mode: /json/version mints a session id and points at ws://host/?session=', async () => {
+  await withBrokerProxy({}, async ({ proxyPort }) => {
+    const res = await httpGet(proxyPort, '/json/version');
+    assert.equal(res.status, 200);
+    const body = JSON.parse(res.body);
+    assert.match(body.webSocketDebuggerUrl, new RegExp(`^ws://127\\.0\\.0\\.1:${proxyPort}/\\?session=bb-`));
+  });
+});
+
+test('broker mode: /json/version honours a client-supplied session id', async () => {
+  await withBrokerProxy({}, async ({ proxyPort }) => {
+    const res = await httpGet(proxyPort, '/json/version?session=mykey');
+    assert.equal(
+      JSON.parse(res.body).webSocketDebuggerUrl,
+      `ws://127.0.0.1:${proxyPort}/?session=mykey`,
+    );
+  });
+});
+
+test('broker mode: named WS routes to the acquired session, byte-pipes, releases on close', async () => {
+  await withBrokerProxy({}, async ({ proxyPort, stub, events }) => {
+    const { head, socket } = await wsUpgrade(proxyPort, '/?session=bar');
+    assert.match(head, /^HTTP\/1\.1 101 /);
+    assert.deepEqual(stub.calls.acquire[0], { key: 'bar', ephemeral: false });
+    const echoed = await new Promise((resolve) => {
+      socket.once('data', (c) => resolve(c.toString('utf8')));
+      socket.write('cdp-frame');
+    });
+    assert.equal(echoed, 'cdp-frame');
+    assert.equal(events.includes('ws-open'), true);
+    socket.destroy();
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(stub.calls.releases, 1, 'session handle released when the client socket closes');
+  });
+});
+
+test('broker mode: keyless WS acquires an ephemeral, minted session', async () => {
+  await withBrokerProxy({}, async ({ proxyPort, stub }) => {
+    const { head, socket } = await wsUpgrade(proxyPort, '/');
+    assert.match(head, /^HTTP\/1\.1 101 /);
+    assert.equal(stub.calls.acquire[0].ephemeral, true);
+    assert.match(stub.calls.acquire[0].key, /^bb-/);
+    socket.destroy();
+  });
+});
+
+test('broker mode: session cap surfaces to the client as 503', async () => {
+  await withBrokerProxy({}, async ({ proxyPort, stub }) => {
+    stub.setCap(true);
+    const { head, socket } = await wsUpgrade(proxyPort, '/?session=x');
+    assert.match(head, /^HTTP\/1\.1 503 /);
+    socket.destroy();
+  });
+});
+
+test('broker mode: token auth is still enforced on discovery and upgrade', async () => {
+  await withBrokerProxy({ token: 's3cret' }, async ({ proxyPort }) => {
+    assert.equal((await httpGet(proxyPort, '/json/version')).status, 401);
+    assert.equal((await httpGet(proxyPort, '/json/version?token=s3cret')).status, 200);
+    const denied = await wsUpgrade(proxyPort, '/?session=x');
+    assert.match(denied.head, /^HTTP\/1\.1 401 /);
+    denied.socket.destroy();
+  });
+});

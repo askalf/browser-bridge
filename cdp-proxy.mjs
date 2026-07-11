@@ -38,7 +38,7 @@
 
 import http from 'node:http';
 import net from 'node:net';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual, randomBytes } from 'node:crypto';
 
 /**
  * @param {object} opts
@@ -49,6 +49,16 @@ import { createHash, timingSafeEqual } from 'node:crypto';
  * @param {string} [opts.token]        Shared secret; empty = no auth.
  * @param {boolean} [opts.allowHostnames]  Accept DNS-name Host headers
  *                                     without a token (rebinding trade-off).
+ * @param {object} [opts.broker]       Session broker (createSessionBroker).
+ *                                     When present the proxy runs in ISOLATED
+ *                                     mode: each connection is routed to its
+ *                                     own per-session browser (acquire on WS
+ *                                     upgrade, release on close) instead of a
+ *                                     single shared Chromium on internalPort.
+ *                                     /json/version mints a session id so
+ *                                     vanilla connectOverCDP lands on one
+ *                                     session. Absent = shared mode (default,
+ *                                     unchanged).
  * @param {(event: string, detail?: object) => void} [opts.onEvent]
  *                                     'auth-failure' | 'host-blocked' |
  *                                     'ws-open' | 'ws-close'
@@ -60,11 +70,20 @@ export function createCdpProxy({
   externalPort,
   token = '',
   allowHostnames = false,
+  broker = null,
   onEvent = () => {},
   log = () => {},
 }) {
   const internalHost = `127.0.0.1:${internalPort}`;
   const tokenDigest = token ? createHash('sha256').update(token).digest() : null;
+
+  // Session-id minting for isolated mode. connectOverCDP discovers over one
+  // socket (GET /json/version) then connects over another, so the session has
+  // to travel in the URL; we mint it here and hand it back in the discovery
+  // response. Direct puppeteer.connect({browserWSEndpoint: '…/?session=x'})
+  // skips discovery and supplies its own key.
+  let mintSeq = 0;
+  const mintSession = () => `bb-${(++mintSeq).toString(36)}-${randomBytes(3).toString('hex')}`;
 
   const tokenMatches = (candidate) => {
     if (!tokenDigest || typeof candidate !== 'string' || candidate.length === 0) return false;
@@ -111,13 +130,13 @@ export function createCdpProxy({
   // Rebuild the forwarded header block from rawHeaders so casing and
   // ordering survive; swap Host for Chromium's loopback and drop our
   // auth headers (Chromium has no use for them).
-  const forwardedHeaderLines = (req) => {
+  const forwardedHeaderLines = (req, targetHost = internalHost) => {
     const lines = [];
     for (let i = 0; i < req.rawHeaders.length; i += 2) {
       const name = req.rawHeaders[i];
       const lower = name.toLowerCase();
       if (lower === 'authorization' || lower === 'x-bridge-token') continue;
-      lines.push(`${name}: ${lower === 'host' ? internalHost : req.rawHeaders[i + 1]}`);
+      lines.push(`${name}: ${lower === 'host' ? targetHost : req.rawHeaders[i + 1]}`);
     }
     return lines;
   };
@@ -141,6 +160,28 @@ export function createCdpProxy({
       onEvent(verdict.event);
       res.writeHead(verdict.status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: verdict.message }));
+      return;
+    }
+
+    // Isolated mode: no shared browser to forward to. Answer discovery by
+    // minting a session and pointing the client at ws://host/?session=<id>;
+    // the browser is launched lazily when that WS connects (an abandoned
+    // discovery costs nothing). Any other HTTP path predates a browser.
+    if (broker) {
+      if (url.pathname.startsWith('/json/version')) {
+        const sid = url.searchParams.get('session') || mintSession();
+        const host = req.headers.host || `127.0.0.1:${externalPort}`;
+        const presented = presentedToken(req, url);
+        const tokenQs = tokenDigest && presented ? `&token=${encodeURIComponent(presented)}` : '';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          Browser: 'browser-bridge (isolated)',
+          webSocketDebuggerUrl: `ws://${host}/?session=${sid}${tokenQs}`,
+        }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('[]');
       return;
     }
 
@@ -197,6 +238,43 @@ export function createCdpProxy({
       onEvent(verdict.event);
       const statusLine = verdict.status === 401 ? '401 Unauthorized' : '403 Forbidden';
       socket.end(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+      return;
+    }
+
+    // Isolated mode: route this connection to its own session browser. Named
+    // (?session=) sessions are reused + linger for reconnect; keyless ones are
+    // ephemeral and disposed when this socket closes. Still a byte-pipe after
+    // the handshake — we just connect to the session's internal port.
+    if (broker) {
+      const named = url.searchParams.get('session');
+      const key = named || mintSession();
+      let handle;
+      try {
+        handle = await broker.acquire(key, !named);
+      } catch {
+        socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+        return;
+      }
+      if (socket.destroyed) { handle.release(); return; }
+
+      const targetHost = `127.0.0.1:${handle.internalPort}`;
+      const upstream = net.connect(handle.internalPort, '127.0.0.1');
+      let opened = false;
+      let released = false;
+      const release = () => { if (!released) { released = true; handle.release(); } };
+      upstream.on('connect', () => {
+        opened = true;
+        onEvent('ws-open', { path: handle.wsPath });
+        upstream.write(
+          `${req.method} ${handle.wsPath} HTTP/1.1\r\n${forwardedHeaderLines(req, targetHost).join('\r\n')}\r\n\r\n`,
+        );
+        if (head && head.length) upstream.write(head);
+        socket.pipe(upstream);
+        upstream.pipe(socket);
+      });
+      upstream.on('error', () => socket.destroy());
+      upstream.on('close', () => { socket.destroy(); if (opened) onEvent('ws-close', { path: handle.wsPath }); });
+      socket.on('close', () => { upstream.destroy(); release(); });
       return;
     }
 
