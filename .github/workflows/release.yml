@@ -27,6 +27,8 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write # keyless Sigstore signing (attest-build-provenance)
+  attestations: write # persist the attestation in GitHub's store
 
 jobs:
   publish:
@@ -66,6 +68,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build + push (multi-arch)
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -109,3 +112,21 @@ jobs:
               --title "$TAG" \
               --notes-file release-notes.md
           fi
+
+      - name: Attest image provenance (keyless Sigstore)
+        id: attest
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/browser-bridge
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attach provenance bundle to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.ver.outputs.ver }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          cp "$BUNDLE" "browser-bridge-${TAG}-image.sigstore.json"
+          gh release upload "$TAG" --clobber "browser-bridge-${TAG}-image.sigstore.json"
