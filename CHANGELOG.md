@@ -24,6 +24,37 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
   puppeteer-extra or Chromium bump that regresses stealth is caught in public
   rather than shipped silently. Runs on relevant pushes, weekly, and on demand.
 
+## [0.3.1] - 2026-07-11
+
+**v0.3.0's image didn't boot — this republishes a working one.** `session-broker.mjs`
+(added in v0.3.0) was never copied into the image, so the container crashed at
+startup with a missing-module error; `release.yml` built and pushed it anyway
+because CI only ever *built* the image, never ran it. v0.3.1 fixes the `COPY`
+and now boots the image in CI so it can't recur — and, while in there, derives
+the UA's Chrome major from the real installed Chromium instead of a stale
+hardcoded value. Re-pull `:latest`.
+
+### Changed
+
+- **User-agent pool tracks the real Chromium.** The advertised Chrome major is
+  now derived at startup from the actual installed browser (`chromium
+  --version`) instead of a hardcoded value, so it can never drift from the
+  engine that renders the page — a UA-vs-engine mismatch is itself a bot tell,
+  and the pool had been pinned to Chrome 132 while the image ships Debian's
+  current Chromium. The selection/derivation logic moved to `ua.mjs` and is
+  unit-tested; a fallback keeps launch working if detection ever fails.
+
+### Fixed
+
+- **The container now boots after `session isolation` landed (v0.3.0).**
+  `launch.mjs` statically imports `session-broker.mjs`, but that module was
+  never added to the Dockerfile `COPY`, so the image built cleanly yet crashed
+  at startup with a missing-module error (`docker-build` CI only *built* the
+  image, never ran it). The `COPY` now globs all runtime modules so a new file
+  can't fall out of the image again, and the `build` workflow now **boots** the
+  image and waits for the post-launch marker, so a runtime-only break fails CI
+  instead of a release.
+
 ## [0.3.0] - 2026-07-11
 
 Two ways to get more out of one bridge: **session isolation** (a stealth browser

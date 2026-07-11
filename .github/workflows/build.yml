@@ -31,11 +31,37 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-      - name: Build (no push) — verifies Dockerfile is sound
+      - name: Build + load — verifies Dockerfile is sound and gives us an image to run
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           push: false
+          load: true
           tags: browser-bridge:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Boot smoke — the container must actually START, not just build
+        # docker-build only ever *built* the image, so a runtime-only break —
+        # a module imported by launch.mjs but never COPY'd in (session-broker.mjs
+        # slipped through exactly this way) — passed CI and would only crash on a
+        # real `docker run`. Boot the image and wait for the post-launch marker.
+        run: |
+          set -eo pipefail
+          docker run -d --name bb --shm-size=512m browser-bridge:ci
+          ok=0
+          for _ in $(seq 1 24); do
+            if [ -z "$(docker ps -q -f name=bb -f status=running)" ]; then
+              echo "::error::container exited during startup"; docker logs bb; exit 1
+            fi
+            if docker logs bb 2>&1 | grep -q "stealth Chromium running"; then ok=1; break; fi
+            sleep 5
+          done
+          echo "--- container logs ---"; docker logs bb 2>&1 | head -40
+          [ "$ok" = "1" ] || { echo "::error::bridge never reached 'stealth Chromium running'"; exit 1; }
+          # Prove ua.mjs ran and derived the major from the REAL Chromium.
+          docker logs bb 2>&1 | grep -Eq "Chromium major: [0-9]+" \
+            || { echo "::error::no 'Chromium major:' line — ua.mjs did not run"; exit 1; }
+          echo "boot smoke OK"
+      - name: Teardown
+        if: always()
+        run: docker rm -f bb || true
