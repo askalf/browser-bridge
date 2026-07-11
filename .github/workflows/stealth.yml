@@ -1,0 +1,107 @@
+name: stealth-score
+
+# Continuously proves the headline stealth claim: build the image, run it, and
+# drive it through the bot-detection battery in stealth-score.mjs as an ordinary
+# CDP client. Publishes the score as a shields.io endpoint badge (on the `badges`
+# branch) and FAILS the job if the score drops below the floor — so a
+# puppeteer-extra or Chromium bump that regresses stealth is caught in public.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Monday 06:17 UTC (staggered off the :00 grid)
+  push:
+    branches: [master]
+    paths:
+      - 'launch.mjs'
+      - 'cdp-proxy.mjs'
+      - 'session-broker.mjs'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'stealth-score.mjs'
+      - '.github/workflows/stealth.yml'
+  pull_request:
+    paths:
+      - 'launch.mjs'
+      - 'cdp-proxy.mjs'
+      - 'session-broker.mjs'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'stealth-score.mjs'
+      - '.github/workflows/stealth.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write # push the badge JSON to the `badges` branch
+
+concurrency:
+  group: stealth-score
+  cancel-in-progress: false
+
+jobs:
+  stealth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build the image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: browser-bridge:stealth-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run the bridge
+        run: |
+          docker run -d --name bb --shm-size=512m -p 9222:9222 browser-bridge:stealth-test
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:9222/json/version >/dev/null; then echo "CDP up"; break; fi
+            sleep 2
+          done
+
+      - name: Install score deps
+        run: npm ci
+
+      - name: Score
+        id: score
+        # Writes stealth.json unconditionally, then exits non-zero if below the
+        # floor. continue-on-error lets us still publish the (red/yellow) badge;
+        # the gate is re-applied in the final step.
+        continue-on-error: true
+        run: node stealth-score.mjs --cdp http://127.0.0.1:9222 --out stealth.json
+
+      - name: Bridge logs + teardown
+        if: always()
+        run: docker logs bb 2>&1 | tail -30 || true; docker rm -f bb || true
+
+      - name: Publish badge
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          [ -f stealth.json ] || { echo "no stealth.json produced — skipping"; exit 0; }
+          cat stealth.json
+          dir="$(mktemp -d)"
+          cp stealth.json "$dir/stealth.json"
+          cd "$dir"
+          git init -q
+          git config user.name "askalf"
+          git config user.email "263217947+askalf@users.noreply.github.com"
+          git checkout -q -b badges
+          git add stealth.json
+          git commit -q -m "chore(badge): update stealth score"
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git" badges
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+
+      - name: Enforce floor
+        if: always()
+        run: |
+          if [ "${{ steps.score.outcome }}" = "failure" ]; then
+            echo "::error::stealth score below floor — see the Score step"
+            exit 1
+          fi
+          echo "stealth score at or above floor"

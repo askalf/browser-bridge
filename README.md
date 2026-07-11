@@ -15,6 +15,7 @@ const browser = await chromium.connectOverCDP('http://localhost:9222');
 ```
 
 [![Build](https://img.shields.io/github/actions/workflow/status/askalf/browser-bridge/build.yml?style=flat-square&label=build&labelColor=020612)](https://github.com/askalf/browser-bridge/actions)
+[![stealth](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/askalf/browser-bridge/badges/stealth.json&style=flat-square&labelColor=020612)](https://github.com/askalf/browser-bridge/actions/workflows/stealth.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-askalf%2Fbrowser--bridge-00ff88?style=flat-square&labelColor=020612)](https://github.com/askalf/browser-bridge/pkgs/container/browser-bridge)
 [![License](https://img.shields.io/badge/MIT-00ff88?style=flat-square&label=license&labelColor=020612)](LICENSE)
 
@@ -24,7 +25,7 @@ Bundling a browser into every agent / scraper / MCP server / test runner is over
 
 ## What you get
 
-- **Stealth** — puppeteer-extra with the full evasion set: `navigator.webdriver`, `navigator.plugins`, `navigator.languages`, WebGL vendor, Chrome runtime, iframe quirks, the works. `--enable-automation` is dropped from the default args. Passes the common bot-detection checks.
+- **Stealth** — puppeteer-extra with the full evasion set: `navigator.webdriver`, `navigator.plugins`, `navigator.languages`, WebGL vendor, Chrome runtime, iframe quirks, the works. `--enable-automation` is dropped from the default args. The **stealth badge** above isn't a claim — CI builds the image and drives it, as an ordinary CDP client, through a bot-detection battery (the vectors sannysoft / CreepJS probe) on every relevant change; the badge is that live score, and the build fails if it regresses. See [`stealth-score.mjs`](stealth-score.mjs).
 - **CDP on 0.0.0.0:9222** — Chromium binds to localhost on recent versions; a built-in HTTP-aware proxy fronts it on the wildcard so other containers (or your dev machine) can reach it.
 - **Optional token auth** — set `BRIDGE_TOKEN` and every CDP request/WebSocket must present it (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). The one thing raw CDP has always been missing. Off by default.
 - **Connect by service name** — Chromium rejects DNS names in the Host header, which is why remote-CDP setups usually make you dig up the container IP. The proxy bridges that: `connectOverCDP('http://browser:9222')` works with a compose service name (with token auth on, or via `BRIDGE_ALLOW_HOSTNAMES=1`).

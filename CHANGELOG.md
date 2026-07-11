@@ -12,6 +12,18 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+### Added
+
+- **Live stealth-score badge** — a `stealth-score` CI workflow builds the image,
+  runs it, and drives it as an ordinary CDP client through a bot-detection
+  battery (`stealth-score.mjs` — the vectors sannysoft / CreepJS probe:
+  `navigator.webdriver`, plugins/mimeTypes, languages, `window.chrome`, vendor,
+  hardwareConcurrency, iframe `contentWindow.chrome`, permissions consistency,
+  automation globals, …). The score publishes as a shields.io endpoint badge (on
+  the `badges` branch) and the build **fails if it drops below a floor**, so a
+  puppeteer-extra or Chromium bump that regresses stealth is caught in public
+  rather than shipped silently. Runs on relevant pushes, weekly, and on demand.
+
 ## [0.3.0] - 2026-07-11
 
 Two ways to get more out of one bridge: **session isolation** (a stealth browser
