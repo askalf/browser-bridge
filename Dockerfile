@@ -32,7 +32,7 @@ WORKDIR /app
 COPY package.json package-lock.json* /app/
 RUN npm install --omit=dev
 
-COPY launch.mjs cdp-proxy.mjs /app/
+COPY launch.mjs cdp-proxy.mjs mcp-server.mjs /app/
 
 # Run as a non-root user so a CDP escape can't escalate.
 RUN groupadd -r browser && useradd -r -g browser browser && \
@@ -44,6 +44,9 @@ ENV CHROME_PATH=/usr/bin/chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 EXPOSE 9222
+# 9225 — optional MCP endpoint (mcp-server.mjs). Run it as a second process
+# alongside the bridge: `command: ["node", "/app/mcp-server.mjs"]`. See README.
+EXPOSE 9225
 
 # Chromium binds the debugger to 127.0.0.1 by default on newer versions;
 # the built-in CDP proxy fronts it on 0.0.0.0:9222 so other containers can

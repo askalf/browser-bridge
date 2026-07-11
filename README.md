@@ -242,6 +242,38 @@ await puppeteer.connect({ browserWSEndpoint: 'ws://browser:9222/?session=my-logi
 
 Named sessions are reaped after `BRIDGE_SESSION_IDLE_MS` (default 5m) with no connections. Acquisitions past `BRIDGE_MAX_SESSIONS` get a `503` — a launch-per-connection endpoint is otherwise an easy resource-exhaustion vector. `isolated` is opt-in; the default stays `shared`.
 
+## MCP endpoint
+
+Ships an optional MCP server (`mcp-server.mjs`) so any MCP client — Claude Code, an agent framework, anything that speaks MCP — can drive the bridge with **no puppeteer or CDP code of its own**. It's a thin MCP server that is itself a CDP client of the bridge, exposing six tools over Streamable HTTP:
+
+| Tool | Does |
+|---|---|
+| `browser_navigate` | Go to a URL, wait for load, report status + title. |
+| `browser_screenshot` | PNG of the viewport (or `fullPage`). |
+| `browser_evaluate` | Run a JS expression in the page, return the result. |
+| `browser_get_content` | Page as `html` or visible `text`. |
+| `browser_get_console` | Console + page-error messages captured this session. |
+| `browser_pdf` | Render the page to a PDF resource. |
+
+Run it as a second process alongside the bridge (same image), pointed at the bridge's CDP endpoint:
+
+```yaml
+services:
+  browser:
+    image: ghcr.io/askalf/browser-bridge:latest
+    expose: ["9222"]
+    shm_size: '512m'
+  browser-mcp:
+    image: ghcr.io/askalf/browser-bridge:latest
+    command: ["node", "/app/mcp-server.mjs"]
+    environment:
+      BRIDGE_CDP_URL: http://browser:9222
+      # BRIDGE_TOKEN: ${BRIDGE_TOKEN}   # required on MCP requests + presented to the bridge
+    ports: ["9225:9225"]
+```
+
+Then point a client at `http://<host>:9225/mcp`. **Each MCP session opens one bridge connection** (`?session=mcp-<id>`), so with the bridge in isolated session mode every MCP session gets its own stealth browser; in shared mode they share one. The browser is opened lazily on the first tool call and disposed when the MCP session ends. If `BRIDGE_TOKEN` is set it's required on MCP requests (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`) and presented onward to the bridge.
+
 ## Configuration
 
 | Env var | Default | Effect |
@@ -260,11 +292,15 @@ Named sessions are reaped after `BRIDGE_SESSION_IDLE_MS` (default 5m) with no co
 | `BRIDGE_BLANK_TTL_MS` | `120000` | *(shared)* Reap `about:blank` tabs idle this long. |
 | `BRIDGE_MAX_IDLE_MS` | `900000` | *(shared)* Reap any page with no navigation for this long (15m). Raise it if your clients hold pages open while working. |
 | `BRIDGE_MAX_PAGES` | `25` | *(shared)* Hard page-count cap; the most-idle pages beyond it are reaped. |
+| `BRIDGE_MCP_PORT` | `9225` | *(mcp-server.mjs)* Port the MCP endpoint listens on. |
+| `BRIDGE_MCP_PATH` | `/mcp` | *(mcp-server.mjs)* Request path for the MCP endpoint. |
+| `BRIDGE_CDP_URL` | `http://127.0.0.1:9222` | *(mcp-server.mjs)* The bridge CDP endpoint the MCP server connects to. |
 
 Ports:
 
 - **9222** (TCP) — CDP entry point. The image's `EXPOSE` targets this.
 - **9224** (TCP, container-internal) — `/healthz` + `/metrics`, bound to `127.0.0.1` inside the container. The Docker `HEALTHCHECK` hits it; it is intentionally not reachable from outside the container.
+- **9225** (TCP) — the optional [MCP endpoint](#mcp-endpoint), only when you run `mcp-server.mjs`.
 
 ## Health & metrics
 
