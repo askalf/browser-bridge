@@ -1,5 +1,7 @@
 # browser-bridge
 
+[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/askalf/browser-bridge?label=OpenSSF%20Scorecard)](https://scorecard.dev/viewer/?uri=github.com/askalf/browser-bridge)
+
 > _browser-bridge — own your browser — stealth headless Chromium, your CDP endpoint. Part of **[Own Your Stack](https://github.com/askalf)** — own your AI infrastructure instead of renting it by the token._
 
 > Stealth headless Chromium in a container. Exposes Chrome DevTools Protocol (CDP) on port 9222. Connect from Playwright, Puppeteer, MCP browser tools, or any agent that wants a remote browser without bundling one.
