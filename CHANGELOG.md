@@ -14,6 +14,24 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ### Added
 
+- **Session isolation (`BRIDGE_SESSION_MODE=isolated`)** — a session broker
+  gives each CDP connection its own stealth Chromium instead of sharing one
+  browser. Hard isolation: no client can see or close another client's targets,
+  and a client calling `browser.close()` only kills its own session. Stealth is
+  preserved — each session launches through the same puppeteer-extra config —
+  and the proxy stays a transparent byte-pipe (it routes each connection to its
+  session's browser; no CDP frame parsing).
+  - `ws://host:9222/?session=<key>` — named session, reused across reconnects,
+    reaped after `BRIDGE_SESSION_IDLE_MS` (default 5m) of no connections.
+  - `ws://host:9222/` — ephemeral session, disposed when the connection closes.
+  - `GET /json/version` mints a session id so a vanilla
+    `puppeteer.connect({ browserURL })` / discovery-then-connect client lands on
+    a single session.
+  - `BRIDGE_MAX_SESSIONS` (default 20) caps concurrent sessions; acquisitions
+    past the cap return 503 (a launch-per-connection endpoint is otherwise a
+    trivial resource-exhaustion vector).
+  - New `/metrics` fields: `mode`, `sessionsActive`, `sessionsReferenced`,
+    `sessionsCreatedTotal`, `sessionsRejected`, `maxSessions`.
 - **Built-in MCP endpoint (`mcp-server.mjs`)** — drive the bridge from any MCP
   client with no puppeteer/CDP code. It's a thin MCP server that is itself a CDP
   client of the bridge, exposing six tools over Streamable HTTP: `browser_navigate`,
@@ -31,9 +49,16 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
     `disconnect()` — never `close()` — so shared mode is never taken down.
   - Adds `@modelcontextprotocol/sdk` + `zod` as dependencies; the image now
     copies `mcp-server.mjs` and exposes `9225`.
-- **Unit tests** (`test/mcp-server.test.mjs`) driving a real MCP client against
-  the tool server over an in-memory transport with a fake page — no browser. CI
-  now `npm ci`s before `npm test`.
+- **Unit tests** — the broker (`test/session-broker.test.mjs`, stubbed launcher)
+  plus broker-mode cases in `test/cdp-proxy.test.mjs`, and the MCP tools
+  (`test/mcp-server.test.mjs`, a real MCP client over an in-memory transport with
+  a fake page — no browser). CI now `npm ci`s before `npm test`.
+
+### Changed
+
+- **Default remains `BRIDGE_SESSION_MODE=shared`** — the single-browser
+  behavior is unchanged and isolated mode is strictly opt-in, so existing
+  deployments are unaffected until they set the variable.
 
 ## [0.2.0] - 2026-07-01
 

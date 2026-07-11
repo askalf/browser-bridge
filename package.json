@@ -6,7 +6,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test": "node --test test/cdp-proxy.test.mjs test/mcp-server.test.mjs"
+    "test": "node --test test/cdp-proxy.test.mjs test/session-broker.test.mjs test/mcp-server.test.mjs"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -210,6 +210,38 @@ curl -s -H "X-Bridge-Token: $BRIDGE_TOKEN" http://localhost:9222/json/list
 
 With a token set you can also connect by DNS/service name (`ws://browser:9222/...` above): Chromium's own Host-header check — which rejects DNS names and doubles as DNS-rebinding protection — is handled by the proxy, and auth covers the rebinding risk. Without a token the bridge keeps Chromium's IP/localhost-only Host behavior; set `BRIDGE_ALLOW_HOSTNAMES=1` if you want service-name connections on an open bridge and accept that trade-off.
 
+## Session isolation
+
+By default the bridge fronts **one** Chromium and every client connects to the same browser: convenient and cheap, but a client that calls `browser.close()` takes the browser down for everyone, and any connection can enumerate or close pages it didn't open. When several independent clients share a bridge, set `BRIDGE_SESSION_MODE=isolated` and each connection gets its **own** stealth Chromium:
+
+```yaml
+services:
+  browser:
+    image: ghcr.io/askalf/browser-bridge:latest
+    environment:
+      BRIDGE_SESSION_MODE: isolated
+      BRIDGE_MAX_SESSIONS: "20"   # concurrent-session cap
+    expose: ["9222"]
+    shm_size: '512m'
+```
+
+- **Hard isolation** — no client sees or closes another's targets; `browser.close()` only kills that client's session.
+- **Stealth preserved** — every session launches through the same puppeteer-extra stealth config, so evasions apply exactly as in shared mode.
+- **Still a byte-pipe** — the proxy routes each connection to its session's browser; there is no per-message CDP parsing on the hot path.
+
+Choosing a session:
+
+```ts
+// Ephemeral — a fresh browser for this connection, disposed on disconnect:
+await chromium.connectOverCDP('http://browser:9222');
+
+// Named — reused across reconnects (survives a disconnect until it goes idle),
+// for a long-lived logged-in session:
+await puppeteer.connect({ browserWSEndpoint: 'ws://browser:9222/?session=my-login' });
+```
+
+Named sessions are reaped after `BRIDGE_SESSION_IDLE_MS` (default 5m) with no connections. Acquisitions past `BRIDGE_MAX_SESSIONS` get a `503` — a launch-per-connection endpoint is otherwise an easy resource-exhaustion vector. `isolated` is opt-in; the default stays `shared`.
+
 ## MCP endpoint
 
 Ships an optional MCP server (`mcp-server.mjs`) so any MCP client — Claude Code, an agent framework, anything that speaks MCP — can drive the bridge with **no puppeteer or CDP code of its own**. It's a thin MCP server that is itself a CDP client of the bridge, exposing six tools over Streamable HTTP:
@@ -252,11 +284,14 @@ Then point a client at `http://<host>:9225/mcp`. **Each MCP session opens one br
 | `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated Origin header values allowed on CDP websocket connections (`--remote-allow-origins`). Most CDP clients send no Origin header and don't need this. |
 | `BRIDGE_TOKEN` | unset | Shared secret required on every CDP request/WebSocket when set (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). Unset = open, pre-0.2.0 behavior. |
 | `BRIDGE_ALLOW_HOSTNAMES` | unset | Accept DNS-name Host headers (compose service names) *without* a token. Not needed when `BRIDGE_TOKEN` is set. Opt-in because Chromium's Host check doubles as DNS-rebinding protection. |
+| `BRIDGE_SESSION_MODE` | `shared` | `shared` = one browser for all clients (default). `isolated` = a browser per connection (see [Session isolation](#session-isolation)). |
+| `BRIDGE_MAX_SESSIONS` | `20` | *(isolated)* Concurrent-session cap; acquisitions past it return `503`. |
+| `BRIDGE_SESSION_IDLE_MS` | `300000` | *(isolated)* Reap a session this long (5m) after its last connection closes. |
 | `BRIDGE_HEALTH_PORT` | `9224` | Health/metrics port (binds `127.0.0.1` inside the container). |
-| `BRIDGE_REAP_INTERVAL_MS` | `30000` | How often the page reaper runs. |
-| `BRIDGE_BLANK_TTL_MS` | `120000` | Reap `about:blank` tabs idle this long. |
-| `BRIDGE_MAX_IDLE_MS` | `900000` | Reap any page with no navigation for this long (15m). Raise it if your clients hold pages open while working. |
-| `BRIDGE_MAX_PAGES` | `25` | Hard page-count cap; the most-idle pages beyond it are reaped. |
+| `BRIDGE_REAP_INTERVAL_MS` | `30000` | How often the page/session reaper runs. |
+| `BRIDGE_BLANK_TTL_MS` | `120000` | *(shared)* Reap `about:blank` tabs idle this long. |
+| `BRIDGE_MAX_IDLE_MS` | `900000` | *(shared)* Reap any page with no navigation for this long (15m). Raise it if your clients hold pages open while working. |
+| `BRIDGE_MAX_PAGES` | `25` | *(shared)* Hard page-count cap; the most-idle pages beyond it are reaped. |
 | `BRIDGE_MCP_PORT` | `9225` | *(mcp-server.mjs)* Port the MCP endpoint listens on. |
 | `BRIDGE_MCP_PATH` | `/mcp` | *(mcp-server.mjs)* Request path for the MCP endpoint. |
 | `BRIDGE_CDP_URL` | `http://127.0.0.1:9222` | *(mcp-server.mjs)* The bridge CDP endpoint the MCP server connects to. |

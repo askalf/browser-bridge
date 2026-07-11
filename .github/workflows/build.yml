@@ -23,7 +23,7 @@ jobs:
         # The MCP-server tests import @modelcontextprotocol/sdk; puppeteer-core
         # pulls no browser, so this stays fast.
         run: npm ci
-      - name: Unit tests (cdp-proxy + mcp-server)
+      - name: Unit tests (cdp-proxy + session-broker + mcp-server)
         run: npm test
 
   docker-build:
