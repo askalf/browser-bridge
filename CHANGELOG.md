@@ -12,6 +12,13 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-11
+
+Two ways to get more out of one bridge: **session isolation** (a stealth browser
+per connection) and a **built-in MCP endpoint** (drive it from any MCP client
+with no puppeteer code). Both are opt-in; the default single-browser behavior is
+unchanged.
+
 ### Added
 
 - **Session isolation (`BRIDGE_SESSION_MODE=isolated`)** — a session broker
