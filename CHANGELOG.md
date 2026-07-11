@@ -59,6 +59,24 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 - **Default remains `BRIDGE_SESSION_MODE=shared`** — the single-browser
   behavior is unchanged and isolated mode is strictly opt-in, so existing
   deployments are unaffected until they set the variable.
+- **User-agent pool tracks the real Chromium.** The advertised Chrome major is
+  now derived at startup from the actual installed browser (`chromium
+  --version`) instead of a hardcoded value, so it can never drift from the
+  engine that renders the page — a UA-vs-engine mismatch is itself a bot tell,
+  and the pool had been pinned to Chrome 132 while the image ships Debian's
+  current Chromium. The selection/derivation logic moved to `ua.mjs` and is
+  unit-tested; a fallback keeps launch working if detection ever fails.
+
+### Fixed
+
+- **The container now boots after `session isolation` landed.** `launch.mjs`
+  statically imports `session-broker.mjs`, but that module was never added to
+  the Dockerfile `COPY`, so the image built cleanly yet crashed at startup with
+  a missing-module error (`docker-build` CI only *built* the image, never ran
+  it). The `COPY` now globs all runtime modules so a new file can't fall out of
+  the image again, and the `build` workflow now **boots** the image and waits
+  for the post-launch marker, so a runtime-only break fails CI instead of a
+  release.
 
 ## [0.2.0] - 2026-07-01
 
