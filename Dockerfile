@@ -32,7 +32,12 @@ WORKDIR /app
 COPY package.json package-lock.json* /app/
 RUN npm install --omit=dev
 
-COPY launch.mjs cdp-proxy.mjs mcp-server.mjs /app/
+# Copy ALL runtime modules — an explicit file list silently dropped
+# session-broker.mjs (a static import of launch.mjs), which builds fine but
+# crashes the container at startup; docker-build CI only builds, never runs.
+# Glob so a new module can't fall out of the image again. Root holds only
+# runtime .mjs; tests live under test/.
+COPY *.mjs /app/
 
 # Run as a non-root user so a CDP escape can't escalate.
 RUN groupadd -r browser && useradd -r -g browser browser && \

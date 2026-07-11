@@ -39,7 +39,6 @@
  *                                 isolated mode the per-session key seeds the UA).
  */
 
-import { createHash } from 'node:crypto';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -48,29 +47,20 @@ import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { createCdpProxy } from './cdp-proxy.mjs';
 import { createSessionBroker } from './session-broker.mjs';
+import { detectChromeMajor, buildUaPool, pickUa } from './ua.mjs';
 
-// Rotating UA pool — latest Chrome stable across the major desktop and mobile
-// platforms. Picked deterministically per session so a given session keeps a
-// stable fingerprint across reconnects. Bump the Chrome major as stable ships.
-const UA_POOL = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36',
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/132.0.0.0 Mobile/15E148 Safari/604.1',
-];
-
+// Rotating UA pool — picked deterministically per session so a given session
+// keeps a stable fingerprint across reconnects. The Chrome major is derived
+// from the ACTUAL installed Chromium (see ua.mjs), never hardcoded, so the
+// advertised version can't drift from the browser that renders the page — a
+// UA-vs-engine mismatch is itself a bot tell.
+const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH ?? '/usr/bin/chromium';
+const CHROME_MAJOR = detectChromeMajor(CHROME_PATH);
+const UA_POOL = buildUaPool(CHROME_MAJOR);
 const FALLBACK_SEED = `${process.pid}:${Date.now()}`;
 
-function pickUa(sessionId) {
-  const seed = sessionId && sessionId.length > 0 ? sessionId : FALLBACK_SEED;
-  const digest = createHash('sha256').update(seed).digest();
-  const idx = digest.readUInt32BE(0) % UA_POOL.length;
-  return UA_POOL[idx];
-}
-
 const SESSION_ID = process.env.BROWSER_SESSION_ID ?? '';
-const USER_AGENT = pickUa(SESSION_ID);
+const USER_AGENT = pickUa(UA_POOL, SESSION_ID, FALLBACK_SEED);
 
 const stealth = StealthPlugin();
 // Enable every evasion the plugin ships with. Registered once on the shared
@@ -86,7 +76,6 @@ const ALL_EVASIONS = [
 for (const e of ALL_EVASIONS) stealth.enabledEvasions.add(e);
 puppeteer.use(stealth);
 
-const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH ?? '/usr/bin/chromium';
 const INTERNAL_PORT = 9223; // shared mode: chromium binds here (127.0.0.1)
 const EXTERNAL_PORT = 9222; // the CDP proxy exposes this on 0.0.0.0
 
@@ -230,6 +219,7 @@ async function startShared() {
     `--user-agent=${USER_AGENT}`,
   ];
   console.log('[browser-bridge] launching stealth Chromium...');
+  console.log(`[browser-bridge] Chromium major: ${CHROME_MAJOR} (UA pool tracks the real browser)`);
   console.log(`[browser-bridge] UA: ${USER_AGENT}`);
 
   let browser;
@@ -354,7 +344,7 @@ async function startIsolated() {
     const udd = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-sess-'));
     const b = await puppeteer.launch({
       headless: true, executablePath: CHROME_PATH,
-      args: [...COMMON_ARGS, '--remote-debugging-port=0', `--user-data-dir=${udd}`, `--user-agent=${pickUa(key)}`],
+      args: [...COMMON_ARGS, '--remote-debugging-port=0', `--user-data-dir=${udd}`, `--user-agent=${pickUa(UA_POOL, key, FALLBACK_SEED)}`],
       ignoreDefaultArgs: ['--enable-automation'],
     });
     return {
