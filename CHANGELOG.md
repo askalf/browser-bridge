@@ -12,6 +12,29 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+### Added
+
+- **Built-in MCP endpoint (`mcp-server.mjs`)** — drive the bridge from any MCP
+  client with no puppeteer/CDP code. It's a thin MCP server that is itself a CDP
+  client of the bridge, exposing six tools over Streamable HTTP: `browser_navigate`,
+  `browser_screenshot`, `browser_evaluate`, `browser_get_content`,
+  `browser_get_console`, `browser_pdf`. Each MCP session opens one bridge
+  connection (`?session=mcp-<id>`), so in isolated mode every MCP session gets
+  its own stealth browser and in shared mode they share one — stealth, VPN
+  routing and reaping are all inherited from the bridge.
+  - Run alongside the bridge: `BRIDGE_CDP_URL=http://127.0.0.1:9222 node mcp-server.mjs`;
+    point clients at `http://<host>:9225/mcp`.
+  - Env: `BRIDGE_MCP_PORT` (9225), `BRIDGE_MCP_PATH` (`/mcp`), `BRIDGE_CDP_URL`
+    (`http://127.0.0.1:9222`), and `BRIDGE_TOKEN` (required on MCP requests when
+    set, and presented to the bridge).
+  - Browser connections are lazy (opened on first tool call), and disposed with
+    `disconnect()` — never `close()` — so shared mode is never taken down.
+  - Adds `@modelcontextprotocol/sdk` + `zod` as dependencies; the image now
+    copies `mcp-server.mjs` and exposes `9225`.
+- **Unit tests** (`test/mcp-server.test.mjs`) driving a real MCP client against
+  the tool server over an in-memory transport with a fake page — no browser. CI
+  now `npm ci`s before `npm test`.
+
 ## [0.2.0] - 2026-07-01
 
 The socat TCP relay that fronted Chromium's loopback-bound CDP on

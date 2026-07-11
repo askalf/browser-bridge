@@ -210,6 +210,38 @@ curl -s -H "X-Bridge-Token: $BRIDGE_TOKEN" http://localhost:9222/json/list
 
 With a token set you can also connect by DNS/service name (`ws://browser:9222/...` above): Chromium's own Host-header check — which rejects DNS names and doubles as DNS-rebinding protection — is handled by the proxy, and auth covers the rebinding risk. Without a token the bridge keeps Chromium's IP/localhost-only Host behavior; set `BRIDGE_ALLOW_HOSTNAMES=1` if you want service-name connections on an open bridge and accept that trade-off.
 
+## MCP endpoint
+
+Ships an optional MCP server (`mcp-server.mjs`) so any MCP client — Claude Code, an agent framework, anything that speaks MCP — can drive the bridge with **no puppeteer or CDP code of its own**. It's a thin MCP server that is itself a CDP client of the bridge, exposing six tools over Streamable HTTP:
+
+| Tool | Does |
+|---|---|
+| `browser_navigate` | Go to a URL, wait for load, report status + title. |
+| `browser_screenshot` | PNG of the viewport (or `fullPage`). |
+| `browser_evaluate` | Run a JS expression in the page, return the result. |
+| `browser_get_content` | Page as `html` or visible `text`. |
+| `browser_get_console` | Console + page-error messages captured this session. |
+| `browser_pdf` | Render the page to a PDF resource. |
+
+Run it as a second process alongside the bridge (same image), pointed at the bridge's CDP endpoint:
+
+```yaml
+services:
+  browser:
+    image: ghcr.io/askalf/browser-bridge:latest
+    expose: ["9222"]
+    shm_size: '512m'
+  browser-mcp:
+    image: ghcr.io/askalf/browser-bridge:latest
+    command: ["node", "/app/mcp-server.mjs"]
+    environment:
+      BRIDGE_CDP_URL: http://browser:9222
+      # BRIDGE_TOKEN: ${BRIDGE_TOKEN}   # required on MCP requests + presented to the bridge
+    ports: ["9225:9225"]
+```
+
+Then point a client at `http://<host>:9225/mcp`. **Each MCP session opens one bridge connection** (`?session=mcp-<id>`), so with the bridge in isolated session mode every MCP session gets its own stealth browser; in shared mode they share one. The browser is opened lazily on the first tool call and disposed when the MCP session ends. If `BRIDGE_TOKEN` is set it's required on MCP requests (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`) and presented onward to the bridge.
+
 ## Configuration
 
 | Env var | Default | Effect |
@@ -225,11 +257,15 @@ With a token set you can also connect by DNS/service name (`ws://browser:9222/..
 | `BRIDGE_BLANK_TTL_MS` | `120000` | Reap `about:blank` tabs idle this long. |
 | `BRIDGE_MAX_IDLE_MS` | `900000` | Reap any page with no navigation for this long (15m). Raise it if your clients hold pages open while working. |
 | `BRIDGE_MAX_PAGES` | `25` | Hard page-count cap; the most-idle pages beyond it are reaped. |
+| `BRIDGE_MCP_PORT` | `9225` | *(mcp-server.mjs)* Port the MCP endpoint listens on. |
+| `BRIDGE_MCP_PATH` | `/mcp` | *(mcp-server.mjs)* Request path for the MCP endpoint. |
+| `BRIDGE_CDP_URL` | `http://127.0.0.1:9222` | *(mcp-server.mjs)* The bridge CDP endpoint the MCP server connects to. |
 
 Ports:
 
 - **9222** (TCP) — CDP entry point. The image's `EXPOSE` targets this.
 - **9224** (TCP, container-internal) — `/healthz` + `/metrics`, bound to `127.0.0.1` inside the container. The Docker `HEALTHCHECK` hits it; it is intentionally not reachable from outside the container.
+- **9225** (TCP) — the optional [MCP endpoint](#mcp-endpoint), only when you run `mcp-server.mjs`.
 
 ## Health & metrics
 
