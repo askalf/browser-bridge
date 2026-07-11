@@ -1,0 +1,104 @@
+name: stealth-watch
+
+# Boot the bridge image and score its stealth against real anti-bot detectors
+# (bot.sannysoft.com + CreepJS), then publish the score as a shields endpoint
+# badge on the `badge` branch — proving the stealth claim continuously in public
+# and catching regressions when a puppeteer-extra / Chromium bump lands.
+#
+# Scheduled + manual only (NOT per-PR): driving live third-party detectors is
+# inherently a bit flaky, and that must never block a PR. A regression below the
+# floor still publishes the (red) badge, then fails the scheduled run to notify.
+# Mirrors truecopy's marketplace-watch badge mechanism.
+
+on:
+  schedule:
+    - cron: '43 5 * * 1' # Mondays 05:43 UTC (staggered off the :00 grid)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  stealth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false # the badge push supplies the token explicitly in its URL
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Install deps (puppeteer-core for the CDP client)
+        run: npm ci --no-fund --no-audit
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build + load the bridge image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: browser-bridge:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot the bridge
+        run: |
+          set -eo pipefail
+          docker run -d --name bb --shm-size=512m -p 127.0.0.1:9222:9222 browser-bridge:ci
+          for _ in $(seq 1 24); do
+            if [ -z "$(docker ps -q -f name=bb -f status=running)" ]; then
+              echo "::error::bridge exited during startup"; docker logs bb; exit 1
+            fi
+            if curl -sf http://127.0.0.1:9222/json/version >/dev/null 2>&1; then echo "bridge CDP is up"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::bridge CDP never came up"; docker logs bb; exit 1
+
+      - name: Score stealth against the detectors
+        id: score
+        env:
+          BRIDGE_CDP_URL: http://127.0.0.1:9222
+        run: |
+          set -eo pipefail
+          node stealth-check.mjs "$RUNNER_TEMP/out"
+          echo "--- result ---"; cat "$RUNNER_TEMP/out/result.json"
+
+      - name: Teardown
+        if: always()
+        run: docker rm -f bb || true
+
+      - name: Publish badge to the badge branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          cd "$RUNNER_TEMP/out"
+          git init -q -b badge
+          git config user.name askalf
+          git config user.email "263217947+askalf@users.noreply.github.com"
+          # carry forward one-line-per-run history from the previous badge snapshot
+          if git fetch -q --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" badge 2>/dev/null; then
+            git checkout -q FETCH_HEAD -- history.jsonl 2>/dev/null || true
+          fi
+          cat result.json >> history.jsonl
+          rm -f result.json
+          git add -A
+          git commit -q -m "stealth: $(date -u +%F) — $(node -e "console.log(require('./badge.json').message)")"
+          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badge
+
+      - name: Gate on the floor
+        run: |
+          set -eo pipefail
+          node -e "
+            const fs = require('node:fs');
+            const r = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/out/history.jsonl','utf-8').trim().split('\n').pop());
+            import('./stealth-score.mjs').then(({ FLOOR }) => {
+              console.log('score ratio', r.ratio, 'floor', FLOOR, 'failing', r.failing.join(',') || 'none');
+              if (r.ratio < FLOOR) { console.error('::error::stealth score ' + r.pct + '% below floor'); process.exit(1); }
+            });
+          "

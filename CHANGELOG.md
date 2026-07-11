@@ -12,6 +12,21 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+### Added
+
+- **Live stealth-score badge (`stealth-watch` workflow).** A scheduled job boots
+  the bridge image, drives it against real anti-bot detectors
+  (`bot.sannysoft.com` + CreepJS), and scores the running browser against the
+  canonical bot-detection signal set the stealth plugin is meant to defeat
+  (`navigator.webdriver`, `window.chrome`, plugins/languages, WebGL renderer,
+  permission consistency, UA-vs-engine, …). The score publishes as a shields
+  endpoint `badge.json` + `STEALTH.md` report on the `badge` branch (mirroring
+  truecopy's watch badge), so the stealth claim is proven continuously in
+  public and a regression from a puppeteer-extra / Chromium bump turns the badge
+  red and fails the run. Scheduled + manual only, never per-PR, so live-detector
+  flakiness can't block a PR. Scoring/badge logic is pure and unit-tested; the
+  in-browser probe runs live in CI.
+
 ## [0.3.1] - 2026-07-11
 
 **v0.3.0's image didn't boot — this republishes a working one.** `session-broker.mjs`
