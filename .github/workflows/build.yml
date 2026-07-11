@@ -49,7 +49,7 @@ jobs:
           set -eo pipefail
           docker run -d --name bb --shm-size=512m browser-bridge:ci
           ok=0
-          for i in $(seq 1 24); do
+          for _ in $(seq 1 24); do
             if [ -z "$(docker ps -q -f name=bb -f status=running)" ]; then
               echo "::error::container exited during startup"; docker logs bb; exit 1
             fi
