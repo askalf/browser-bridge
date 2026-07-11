@@ -12,6 +12,13 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-11
+
+Proves the stealth claim continuously: CI builds the image, drives it through a
+bot-detection battery as an ordinary CDP client, and publishes the score as a
+badge — failing the build on a regression. Verification only; the runtime image
+is unchanged from v0.3.1.
+
 ### Added
 
 - **Live stealth-score badge** — a `stealth-score` CI workflow builds the image,
