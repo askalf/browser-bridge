@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # push the badge JSON to the `badges` branch
+  contents: read
 
 concurrency:
   group: stealth-score
@@ -41,6 +41,8 @@ concurrency:
 
 jobs:
   stealth:
+    permissions:
+      contents: write # push the badge JSON to the `badges` branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

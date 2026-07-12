@@ -40,6 +40,55 @@ import http from 'node:http';
 import net from 'node:net';
 import { createHash, timingSafeEqual, randomBytes } from 'node:crypto';
 
+// ── Pure request-handling helpers ────────────────────────────────────
+// Module-scope (not closure) because they depend on nothing per-proxy;
+// exported for unit tests and the fuzz targets in ./fuzz — these four are
+// the security seams (auth extraction, the DNS-rebinding gate, secret
+// stripping/dropping) and their contracts are machine-checked there.
+
+/** Token as presented by the client — Bearer, X-Bridge-Token, or ?token=. Pure. */
+export const presentedToken = (req, url) => {
+  const auth = req.headers['authorization'];
+  if (typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7);
+  const header = req.headers['x-bridge-token'];
+  if (typeof header === 'string') return header;
+  return url.searchParams.get('token');
+};
+
+/** The DNS-rebinding gate: hostname Hosts are only safe with auth. Pure. */
+export const hostIsIpOrLocalhost = (hostHeader) => {
+  if (!hostHeader) return true; // HTTP/1.0-style; forwarded as loopback anyway
+  let hostname;
+  try {
+    hostname = new URL(`http://${hostHeader}`).hostname;
+  } catch {
+    return false;
+  }
+  const bare = hostname.replace(/^\[|\]$/g, '');
+  return net.isIP(bare) !== 0 || bare.toLowerCase() === 'localhost';
+};
+
+// Rebuild the forwarded header block from rawHeaders so casing and
+// ordering survive; swap Host for Chromium's loopback and drop our
+// auth headers (Chromium has no use for them). Pure.
+export const forwardedHeaderLines = (req, targetHost) => {
+  const lines = [];
+  for (let i = 0; i < req.rawHeaders.length; i += 2) {
+    const name = req.rawHeaders[i];
+    const lower = name.toLowerCase();
+    if (lower === 'authorization' || lower === 'x-bridge-token') continue;
+    lines.push(`${name}: ${lower === 'host' ? targetHost : req.rawHeaders[i + 1]}`);
+  }
+  return lines;
+};
+
+/** Forwarded path with the ?token= secret removed. Pure (mutates only `url`). */
+export const strippedPath = (url) => {
+  url.searchParams.delete('token');
+  const qs = url.searchParams.toString();
+  return url.pathname + (qs ? `?${qs}` : '');
+};
+
 /**
  * @param {object} opts
  * @param {number} opts.internalPort   Chromium's loopback CDP port.
@@ -90,26 +139,6 @@ export function createCdpProxy({
     return timingSafeEqual(createHash('sha256').update(candidate).digest(), tokenDigest);
   };
 
-  const presentedToken = (req, url) => {
-    const auth = req.headers['authorization'];
-    if (typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7);
-    const header = req.headers['x-bridge-token'];
-    if (typeof header === 'string') return header;
-    return url.searchParams.get('token');
-  };
-
-  const hostIsIpOrLocalhost = (hostHeader) => {
-    if (!hostHeader) return true; // HTTP/1.0-style; forwarded as loopback anyway
-    let hostname;
-    try {
-      hostname = new URL(`http://${hostHeader}`).hostname;
-    } catch {
-      return false;
-    }
-    const bare = hostname.replace(/^\[|\]$/g, '');
-    return net.isIP(bare) !== 0 || bare.toLowerCase() === 'localhost';
-  };
-
   /** @returns {{ok: true} | {ok: false, status: number, message: string, event: string}} */
   const authorize = (req, url) => {
     if (tokenDigest && !tokenMatches(presentedToken(req, url))) {
@@ -125,26 +154,6 @@ export function createCdpProxy({
       };
     }
     return { ok: true };
-  };
-
-  // Rebuild the forwarded header block from rawHeaders so casing and
-  // ordering survive; swap Host for Chromium's loopback and drop our
-  // auth headers (Chromium has no use for them).
-  const forwardedHeaderLines = (req, targetHost = internalHost) => {
-    const lines = [];
-    for (let i = 0; i < req.rawHeaders.length; i += 2) {
-      const name = req.rawHeaders[i];
-      const lower = name.toLowerCase();
-      if (lower === 'authorization' || lower === 'x-bridge-token') continue;
-      lines.push(`${name}: ${lower === 'host' ? targetHost : req.rawHeaders[i + 1]}`);
-    }
-    return lines;
-  };
-
-  const strippedPath = (url) => {
-    url.searchParams.delete('token');
-    const qs = url.searchParams.toString();
-    return url.pathname + (qs ? `?${qs}` : '');
   };
 
   const server = http.createServer((req, res) => {
@@ -186,7 +195,7 @@ export function createCdpProxy({
     }
 
     const headers = {};
-    for (const line of forwardedHeaderLines(req)) {
+    for (const line of forwardedHeaderLines(req, internalHost)) {
       const idx = line.indexOf(': ');
       headers[line.slice(0, idx)] = line.slice(idx + 2);
     }
@@ -299,7 +308,7 @@ export function createCdpProxy({
       opened = true;
       onEvent('ws-open', { path });
       upstream.write(
-        `${req.method} ${path} HTTP/1.1\r\n${forwardedHeaderLines(req).join('\r\n')}\r\n\r\n`,
+        `${req.method} ${path} HTTP/1.1\r\n${forwardedHeaderLines(req, internalHost).join('\r\n')}\r\n\r\n`,
       );
       if (head && head.length) upstream.write(head);
       socket.pipe(upstream);
