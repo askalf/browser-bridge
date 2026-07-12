@@ -6,7 +6,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "fuzz": "node fuzz/run.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -17,5 +18,8 @@
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@jazzer.js/core": "^4.0.0"
   }
 }

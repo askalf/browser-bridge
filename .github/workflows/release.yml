@@ -25,13 +25,18 @@ on:
         type: string
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write # keyless Sigstore signing (attest-build-provenance)
-  attestations: write # persist the attestation in GitHub's store
+  contents: read
 
 jobs:
   publish:
+    # Write scopes live on the job, not top-level, so the token every other
+    # (future) job gets stays read-only — OpenSSF Scorecard's
+    # Token-Permissions check zeroes on any top-level write.
+    permissions:
+      contents: write
+      packages: write
+      id-token: write # keyless Sigstore signing (attest-build-provenance)
+      attestations: write # persist the attestation in GitHub's store
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

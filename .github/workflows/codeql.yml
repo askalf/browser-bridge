@@ -9,13 +9,15 @@ on:
     - cron: '32 7 * * 1'
 
 permissions:
-  actions: read
   contents: read
-  security-events: write
 
 jobs:
   analyze:
     name: analyze (${{ matrix.language }})
+    permissions:
+      actions: read
+      contents: read
+      security-events: write # upload analysis results to code scanning
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

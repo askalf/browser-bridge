@@ -12,6 +12,16 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+### Added — continuous fuzzing of the trust boundary (ClusterFuzzLite)
+
+- Two Jazzer.js targets pin the fail-safe contracts where the bridge consumes input it doesn't control. `fuzz/cdp_guards.fuzz.js`: the CDP proxy's pure request guards — the DNS-rebinding Host gate never passes a DNS name, `?token=` never survives into the forwarded path, `Authorization`/`X-Bridge-Token` never leak upstream, and Host is always rewritten to the loopback target. `fuzz/ua.fuzz.js`: `parseChromeMajor` over hostile `--version` output and `pickUa` over client-controlled `?session=` ids (never throws, always in-pool, deterministic per session). The four guard helpers moved from the `createCdpProxy` closure to exported module scope — same bodies, call sites now pass `internalHost` explicitly — so the contracts are testable at all.
+- ClusterFuzzLite runs the targets weekly in CI (`cflite.yml`, batch mode); `npm run fuzz` is the fast local repro loop (`FUZZ_SECONDS` overrides the 30s default). Closes the OpenSSF Scorecard Fuzzing check.
+
+### Changed — supply-chain pins + read-only workflow tokens
+
+- `Dockerfile`: base image digest-pinned (dependabot's existing docker ecosystem refreshes it) and `npm install` → `npm ci` so the image builds from the committed lockfile. `actionlint.yml`: the mutable main-branch installer script piped to bash is replaced by a checksum-verified release tarball. Closes the three Scorecard Pinned-Dependencies findings.
+- `release.yml`, `stealth.yml`, `codeql.yml`: write scopes (`contents`, `packages`, `security-events`, …) moved from workflow level to the single job that uses them; top level drops to `contents: read`. Same steps, same effective scopes, narrower blast radius. Closes the four Token-Permissions findings.
+
 ## [0.3.2] - 2026-07-11
 
 Proves the stealth claim continuously: CI builds the image, drives it through a

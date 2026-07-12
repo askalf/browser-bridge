@@ -18,7 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: actionlint
+        # Checksum-pinned release tarball instead of piping the (mutable,
+        # main-branch) installer script into bash — Scorecard flags that as
+        # unpinned download-then-run, and it's the real supply-chain seam here.
         run: |
           set -euo pipefail
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.7
+          curl -fsSL -o actionlint.tgz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  actionlint.tgz" | sha256sum -c -
+          tar xzf actionlint.tgz actionlint
           ./actionlint -color
