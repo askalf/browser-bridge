@@ -1,6 +1,6 @@
 # browser-bridge
 
-[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/askalf/browser-bridge?label=OpenSSF%20Scorecard)](https://scorecard.dev/viewer/?uri=github.com/askalf/browser-bridge)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/askalf/browser-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/askalf/browser-bridge)
 
 > _browser-bridge — own your browser — stealth headless Chromium, your CDP endpoint. Part of **[Own Your Stack](https://github.com/askalf)** — own your AI infrastructure instead of renting it by the token._
 
