@@ -49,17 +49,25 @@ jobs:
           set -eo pipefail
           docker run -d --name bb --shm-size=512m browser-bridge:ci
           ok=0
+          logs=""
           for _ in $(seq 1 24); do
             if [ -z "$(docker ps -q -f name=bb -f status=running)" ]; then
               echo "::error::container exited during startup"; docker logs bb; exit 1
             fi
-            if docker logs bb 2>&1 | grep -q "stealth Chromium running"; then ok=1; break; fi
+            # Snapshot the logs and grep the variable. A live `docker logs | grep -q`
+            # pipe under pipefail is a race: grep -q exits on first match, docker logs
+            # takes SIGPIPE if it's still writing, and the pipeline fails despite the
+            # match (#49 — failed a healthy boot as "ua.mjs did not run").
+            logs="$(docker logs bb 2>&1)"
+            if grep -q "stealth Chromium running" <<<"$logs"; then ok=1; break; fi
             sleep 5
           done
-          echo "--- container logs ---"; docker logs bb 2>&1 | head -40
+          echo "--- container logs ---"; head -40 <<<"$logs"
           [ "$ok" = "1" ] || { echo "::error::bridge never reached 'stealth Chromium running'"; exit 1; }
-          # Prove ua.mjs ran and derived the major from the REAL Chromium.
-          docker logs bb 2>&1 | grep -Eq "Chromium major: [0-9]+" \
+          # Prove ua.mjs ran and derived the major from the REAL Chromium. Same
+          # snapshot as the marker check — the major line is logged before the
+          # marker, so a snapshot containing the marker must contain it.
+          grep -Eq "Chromium major: [0-9]+" <<<"$logs" \
             || { echo "::error::no 'Chromium major:' line — ua.mjs did not run"; exit 1; }
           echo "boot smoke OK"
       - name: Teardown
