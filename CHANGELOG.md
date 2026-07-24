@@ -10,7 +10,11 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 `vX.Y.Z`, and the release.yml workflow will build + push the GHCR image.
 -->
 
-## [Unreleased]
+## [0.3.3] - 2026-07-24
+
+### Security
+
+- Base Docker image (`node`) digest-bumped to pick up upstream OS/Chromium-dependency patches; dependabot keeps this current going forward. No runtime behavior change.
 
 ### Added — continuous fuzzing of the trust boundary (ClusterFuzzLite)
 
