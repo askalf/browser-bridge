@@ -7,10 +7,13 @@
 // plugin) reads `options.userDataDir` in its beforeLaunch hook; when it
 // finds nothing it mints its own temp profile, writes the stealth profile
 // files there, and puppeteer turns that into a second --user-data-dir
-// flag. Chromium honours the FIRST occurrence — puppeteer's, not ours —
-// so a directory passed via `args` is silently ignored. Measured on
-// Chromium 150: two flags on the command line, profile path resolved to
-// the plugin's temp dir, our directory never given a `Default/`. See #56.
+// flag. With the flag present twice the plugin's directory is the one
+// Chromium uses and ours is silently ignored — observed both locally on
+// Chromium 150 and on the deployed 0.3.3 container, where
+// /home/browser/data sat empty while /tmp/puppeteer_dev_profile-* held the
+// real profile. The flag ORDER differed between those two environments and
+// the plugin won regardless, so don't reason about this as first- or
+// last-wins; just never emit the flag twice. See #56.
 // ════════════════════════════════════════════════════════════════════
 
 /**
