@@ -10,6 +10,16 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 `vX.Y.Z`, and the release.yml workflow will build + push the GHCR image.
 -->
 
+## [Unreleased]
+
+### Fixed — a profile on a volume wedged the container on every restart
+
+- Chromium guards a profile with `SingletonLock` (a symlink to `<hostname>-<pid>`), `SingletonCookie` and `SingletonSocket`, and only removes them on a clean exit. Containers are killed, not shut down, so with a **persistent** profile those entries survive into the next container — which has a different hostname — and Chromium refuses to start: *"The profile appears to be in use by another Chromium process (34) on another computer (a2a862525639)"*. The bridge reported `failed to launch: … Code: 21` and the container entered a restart loop, because every retry read the same lock.
+- This was latent until v0.3.4. While the configured profile path was still being ignored (#56) the live profile was always a fresh `/tmp/puppeteer_dev_profile-*`, so the lock died with the container. Honouring the path is what made a durable profile possible, and a durable profile is what exposed this.
+- `clearStaleSingletonLock()` (`profile-lock.mjs`) now removes those three entries immediately before launch. It probes with `lstat`, **not** `existsSync` — `SingletonLock` points at a target that does not resolve, so `existsSync` returns false for the very file that blocks startup. It removes only those three names and never recurses, because the rest of the profile is the user data a volume exists to preserve; and it never throws, so a profile it cannot tidy still gets a launch attempt with Chromium's own error as the diagnostic.
+- Pinning the container hostname is **not** a fix — verified on a live box: a lock written by an earlier container still names the old hostname, so the comparison fails regardless of the current one.
+- Only the shared path needs this. Isolated mode already mints a fresh `mkdtemp` directory per session, which cannot carry a stale lock.
+
 ## [0.3.4] - 2026-07-26
 
 ### Security — dropped the `rimraf@3` dependency chain (GHSA-mh99-v99m-4gvg / CVE-2026-14257)
