@@ -49,6 +49,7 @@ import { createCdpProxy } from './cdp-proxy.mjs';
 import { createSessionBroker } from './session-broker.mjs';
 import { detectChromeMajor, buildUaPool, pickUa } from './ua.mjs';
 import { buildLaunchOptions } from './launch-opts.mjs';
+import { clearStaleSingletonLock } from './profile-lock.mjs';
 
 // Rotating UA pool — picked deterministically per session so a given session
 // keeps a stable fingerprint across reconnects. The Chrome major is derived
@@ -229,6 +230,14 @@ async function startShared() {
   console.log(`[browser-bridge] Chromium major: ${CHROME_MAJOR} (UA pool tracks the real browser)`);
   console.log(`[browser-bridge] UA: ${USER_AGENT}`);
   console.log(`[browser-bridge] profile: ${SHARED_USER_DATA_DIR}`);
+
+  // A profile on a volume outlives the container, and a container is killed
+  // rather than shut down, so Chromium's singleton lock survives naming a
+  // hostname that no longer exists and every later launch is refused. Clear it
+  // before launching, not after a failure — the failure is fatal to startup.
+  clearStaleSingletonLock(SHARED_USER_DATA_DIR, {
+    log: (msg) => console.log(`[browser-bridge] ${msg}`),
+  });
 
   let browser;
   try {
