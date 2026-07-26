@@ -48,6 +48,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { createCdpProxy } from './cdp-proxy.mjs';
 import { createSessionBroker } from './session-broker.mjs';
 import { detectChromeMajor, buildUaPool, pickUa } from './ua.mjs';
+import { buildLaunchOptions } from './launch-opts.mjs';
 
 // Rotating UA pool — picked deterministically per session so a given session
 // keeps a stable fingerprint across reconnects. The Chrome major is derived
@@ -75,6 +76,11 @@ const ALL_EVASIONS = [
 ];
 for (const e of ALL_EVASIONS) stealth.enabledEvasions.add(e);
 puppeteer.use(stealth);
+
+// Shared-mode profile. The image creates and chowns this for the `browser`
+// user; mount a volume here to persist it. Passed as puppeteer's
+// `userDataDir` option, never as an arg — see launch-opts.mjs.
+const SHARED_USER_DATA_DIR = process.env.BRIDGE_USER_DATA_DIR ?? '/home/browser/data';
 
 const INTERNAL_PORT = 9223; // shared mode: chromium binds here (127.0.0.1)
 const EXTERNAL_PORT = 9222; // the CDP proxy exposes this on 0.0.0.0
@@ -212,22 +218,21 @@ setInterval(() => { heartbeat().catch(() => {}); }, 60_000).unref();
 // SHARED runtime — one Chromium, fronted directly by the proxy.
 // ════════════════════════════════════════════════════════════════════
 async function startShared() {
-  const args = [
-    ...COMMON_ARGS,
-    `--remote-debugging-port=${INTERNAL_PORT}`,
-    '--user-data-dir=/home/browser/data',
-    `--user-agent=${USER_AGENT}`,
-  ];
+  const opts = buildLaunchOptions({
+    chromePath: CHROME_PATH,
+    commonArgs: COMMON_ARGS,
+    debugPort: INTERNAL_PORT,
+    userDataDir: SHARED_USER_DATA_DIR,
+    userAgent: USER_AGENT,
+  });
   console.log('[browser-bridge] launching stealth Chromium...');
   console.log(`[browser-bridge] Chromium major: ${CHROME_MAJOR} (UA pool tracks the real browser)`);
   console.log(`[browser-bridge] UA: ${USER_AGENT}`);
+  console.log(`[browser-bridge] profile: ${SHARED_USER_DATA_DIR}`);
 
   let browser;
   try {
-    browser = await puppeteer.launch({
-      headless: true, executablePath: CHROME_PATH, args,
-      ignoreDefaultArgs: ['--enable-automation'],
-    });
+    browser = await puppeteer.launch(opts);
     console.log('[browser-bridge] stealth Chromium running');
     console.log(`[browser-bridge] CDP (external): ws://0.0.0.0:${EXTERNAL_PORT}/... (via cdp-proxy)`);
   } catch (err) {
@@ -342,11 +347,13 @@ async function startShared() {
 async function startIsolated() {
   const launch = async (key) => {
     const udd = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-sess-'));
-    const b = await puppeteer.launch({
-      headless: true, executablePath: CHROME_PATH,
-      args: [...COMMON_ARGS, '--remote-debugging-port=0', `--user-data-dir=${udd}`, `--user-agent=${pickUa(UA_POOL, key, FALLBACK_SEED)}`],
-      ignoreDefaultArgs: ['--enable-automation'],
-    });
+    const b = await puppeteer.launch(buildLaunchOptions({
+      chromePath: CHROME_PATH,
+      commonArgs: COMMON_ARGS,
+      debugPort: 0,
+      userDataDir: udd,
+      userAgent: pickUa(UA_POOL, key, FALLBACK_SEED),
+    }));
     return {
       wsEndpoint: b.wsEndpoint(),
       pid: b.process()?.pid,

@@ -18,6 +18,13 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 - The `brace-expansion` override is dropped along with the chain rather than raised: the advisory is only fixed in `brace-expansion@5.0.8`, whose CommonJS build exports `exports.expand` with no default, so forcing it under `minimatch@3` (`var expand = require('brace-expansion'); expand(pattern)`) would throw on every browser teardown — a failure the boot-smoke cannot see. Leaving the override off means any future reintroduction of the package is reported honestly instead of being masked.
 - `npm audit --omit=dev` goes from 7 high to 0; closes the Scorecard Vulnerabilities finding. `:latest` picks this up at the next tag cut.
 
+### Fixed — the configured profile directory was silently ignored (#56)
+
+- Both launch paths passed the profile as a `--user-data-dir` entry in `args`. `puppeteer-extra-plugin-user-data-dir` reads puppeteer's `userDataDir` **option**, found nothing, minted its own temp profile, wrote the stealth profile files there, and puppeteer turned that into a *second* `--user-data-dir` flag. Chromium honours the **first** occurrence, which is puppeteer's — so `/home/browser/data` was never the live profile and never received a `Default/`. Measured on Chromium 150: two flags on the command line, profile path resolved to the plugin's temp dir. In isolated mode the broker's own `mkdtemp` session directory was created and removed for nothing, while the real per-session profile was the plugin's.
+- The profile is now passed as the `userDataDir` option through a new pure `buildLaunchOptions()` (`launch-opts.mjs`), used by both the shared and isolated paths. Verified against Chromium 150: one flag, our directory is the reported profile path, it gets its `Default/`, and no stray plugin temp directory is created. Since the plugin adopts a caller-supplied directory as non-temporary, it no longer deletes it on disconnect — in shared mode the container exits with the browser anyway, and in isolated mode the broker's `close()` was already the cleanup owner, so it is now the only one.
+- `buildLaunchOptions()` throws if a `--user-data-dir` ever appears in `args`, and `test/launch-opts.test.mjs` asserts there is exactly one profile source. This class of bug was invisible for weeks precisely because nothing asserted it.
+- Shared-mode profile location is now overridable with `BRIDGE_USER_DATA_DIR` (default unchanged at `/home/browser/data`), and the resolved path is logged at startup.
+
 ## [0.3.3] - 2026-07-24
 
 ### Security
