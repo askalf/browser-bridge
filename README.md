@@ -290,6 +290,7 @@ Then point a client at `http://<host>:9225/mcp`. **Each MCP session opens one br
 | `BRIDGE_SESSION_MODE` | `shared` | `shared` = one browser for all clients (default). `isolated` = a browser per connection (see [Session isolation](#session-isolation)). |
 | `BRIDGE_MAX_SESSIONS` | `20` | *(isolated)* Concurrent-session cap; acquisitions past it return `503`. |
 | `BRIDGE_SESSION_IDLE_MS` | `300000` | *(isolated)* Reap a session this long (5m) after its last connection closes. |
+| `BRIDGE_USER_DATA_DIR` | `/home/browser/data` | *(shared)* Chromium profile directory. The image creates and chowns the default for the `browser` user; mount a volume there to persist cookies/storage across restarts. `isolated` mode always uses a fresh per-session directory and ignores this. |
 | `BRIDGE_HEALTH_PORT` | `9224` | Health/metrics port (binds `127.0.0.1` inside the container). |
 | `BRIDGE_REAP_INTERVAL_MS` | `30000` | How often the page/session reaper runs. |
 | `BRIDGE_BLANK_TTL_MS` | `120000` | *(shared)* Reap `about:blank` tabs idle this long. |
