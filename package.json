@@ -17,6 +17,7 @@
     "puppeteer-core": "^25.3.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer-extra-plugin-user-data-dir": "2.3.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -24,8 +25,8 @@
   },
   "overrides": {
     "@hono/node-server": "^2.0.5",
-    "brace-expansion": "^1.1.16",
     "fast-uri": "^3.1.4",
+    "puppeteer-extra-plugin-user-data-dir": "2.3.3",
     "tar": "^7.5.21"
   }
 }

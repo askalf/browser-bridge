@@ -10,6 +10,14 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 `vX.Y.Z`, and the release.yml workflow will build + push the GHCR image.
 -->
 
+## [Unreleased]
+
+### Security — dropped the `rimraf@3` dependency chain (GHSA-mh99-v99m-4gvg / CVE-2026-14257)
+
+- `puppeteer-extra-plugin-user-data-dir` pinned to `2.3.3` — declared as a **direct dependency** as well as an `overrides` entry, which removes `rimraf@3 → glob@7 → minimatch@3 → brace-expansion@1` (and their transitives) from the production tree entirely. The direct dependency is load-bearing, not redundant: with only the override, `2.3.3` does not satisfy `…-user-preferences`' declared `^2.4.1`, so npm installs it *nested* under `node_modules/puppeteer-extra-plugin-user-preferences/node_modules/`. `puppeteer-extra` resolves plugin dependencies by requiring them from its own directory, walks up to the top-level `node_modules`, finds nothing, and the container dies at launch with `Cannot find module 'puppeteer-extra-plugin-user-data-dir'`. Declaring it at the root hoists it back to top level and the override then dedupes `…-user-preferences` onto the same copy. `2.3.3` deletes the temporary profile with native `fs.rmSync(..., { recursive, force, maxRetries: 3 })`; `2.4.0` regressed to `rimraf`, and that is the only substantive difference between them — plugin name, requirements, `beforeLaunch`, `onDisconnected` and the delete gating are identical. `puppeteer-extra-plugin-stealth` stays at `2.11.2`, so no evasions are given up.
+- The `brace-expansion` override is dropped along with the chain rather than raised: the advisory is only fixed in `brace-expansion@5.0.8`, whose CommonJS build exports `exports.expand` with no default, so forcing it under `minimatch@3` (`var expand = require('brace-expansion'); expand(pattern)`) would throw on every browser teardown — a failure the boot-smoke cannot see. Leaving the override off means any future reintroduction of the package is reported honestly instead of being masked.
+- `npm audit --omit=dev` goes from 7 high to 0; closes the Scorecard Vulnerabilities finding. `:latest` picks this up at the next tag cut.
+
 ## [0.3.3] - 2026-07-24
 
 ### Security
