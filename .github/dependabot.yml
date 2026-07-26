@@ -17,6 +17,17 @@ updates:
         update-types:
           - patch
           - minor
+    ignore:
+      # Pinned to 2.3.3 on purpose (direct dependency + override, see #55).
+      # 2.4.0 regressed profile cleanup from native fs.rmSync() to rimraf@3,
+      # which drags rimraf -> glob@7 -> minimatch@3 -> brace-expansion@1 back
+      # into the production tree and re-opens GHSA-mh99-v99m-4gvg. 2.3.3 ->
+      # 2.4.1 is a *minor*, so without this it lands in the non-major group
+      # above and silently reverts the fix. Revisit only if upstream drops
+      # rimraf again — check the package's dependencies before unpinning.
+      - dependency-name: puppeteer-extra-plugin-user-data-dir
+        versions:
+          - '>=2.4.0'
   - package-ecosystem: github-actions
     directory: /
     schedule:
