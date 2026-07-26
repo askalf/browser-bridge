@@ -10,7 +10,7 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 `vX.Y.Z`, and the release.yml workflow will build + push the GHCR image.
 -->
 
-## [Unreleased]
+## [0.3.5] - 2026-07-26
 
 ### Fixed — a profile on a volume wedged the container on every restart
 
