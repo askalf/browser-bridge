@@ -25,7 +25,7 @@
   },
   "overrides": {
     "@hono/node-server": "^2.0.5",
-    "fast-uri": "^3.1.4",
+    "fast-uri": "^3.1.5",
     "puppeteer-extra-plugin-user-data-dir": "2.3.3",
     "tar": "^7.5.21"
   }
