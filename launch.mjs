@@ -24,7 +24,11 @@
  *   BRIDGE_SESSION_IDLE_MS      — isolated: reap a session this long after its
  *                                 last connection closes. Default 300000 (5m).
  *   PUPPETEER_EXECUTABLE_PATH   — Chromium binary. Default /usr/bin/chromium.
- *   HTTPS_PROXY / HTTP_PROXY    — passed as --proxy-server when set (VPN).
+ *   HTTPS_PROXY / HTTP_PROXY    — upstream proxy (VPN / residential egress).
+ *                                 http://host:port, or http://user:pass@host:port
+ *                                 for an authenticated proxy — credentials are
+ *                                 served by a loopback relay, since Chromium
+ *                                 cannot authenticate to a proxy itself.
  *   CDP_ALLOWED_ORIGIN          — allowed CDP websocket Origin values.
  *   BRIDGE_TOKEN                — shared secret; when set every CDP request /
  *                                 WebSocket must present it.
@@ -50,6 +54,7 @@ import { createSessionBroker } from './session-broker.mjs';
 import { detectChromeMajor, buildUaPool, pickUa } from './ua.mjs';
 import { buildLaunchOptions } from './launch-opts.mjs';
 import { clearStaleSingletonLock } from './profile-lock.mjs';
+import { parseProxyUrl, startAuthRelay } from './proxy-auth-relay.mjs';
 
 // Rotating UA pool — picked deterministically per session so a given session
 // keeps a stable fingerprint across reconnects. The Chrome major is derived
@@ -120,10 +125,27 @@ const COMMON_ARGS = [
   '--enable-features=NetworkService,NetworkServiceInProcess',
   '--enable-webgl', '--enable-accelerated-2d-canvas', '--font-render-hinting=medium',
 ];
+// Upstream proxy. Chromium strips credentials out of --proxy-server and has no
+// flag to supply them, so when the URL carries a user:pass we stand up a
+// loopback relay that adds Proxy-Authorization and point Chromium at that
+// instead. See proxy-auth-relay.mjs for why this rather than page.authenticate().
 const HTTP_PROXY = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY;
+let authRelay = null;
 if (HTTP_PROXY) {
-  COMMON_ARGS.push(`--proxy-server=${HTTP_PROXY}`);
-  console.log(`[browser-bridge] routing through proxy: ${HTTP_PROXY}`);
+  const upstream = parseProxyUrl(HTTP_PROXY);
+  let proxyArg = upstream.proxyArg;
+  if (upstream.hasCredentials) {
+    authRelay = await startAuthRelay({
+      ...upstream,
+      log: (msg) => console.log(`[browser-bridge] proxy-auth-relay: ${msg}`),
+    });
+    proxyArg = authRelay.url;
+    console.log(`[browser-bridge] proxy auth relay on ${authRelay.url} -> ${upstream.redacted}`);
+  }
+  COMMON_ARGS.push(`--proxy-server=${proxyArg}`);
+  // Redacted: HTTPS_PROXY may carry a password and this line lands in the
+  // container logs.
+  console.log(`[browser-bridge] routing through proxy: ${upstream.redacted}`);
 }
 
 console.log(`[browser-bridge] session mode: ${ISOLATED ? 'isolated (process-per-session)' : 'shared'}`);
@@ -206,6 +228,7 @@ const shutdown = async (signal) => {
   clearInterval(reaperTimer);
   try { healthServer.close(); } catch { /* already closed */ }
   try { cdpProxy.close(); } catch { /* already closed */ }
+  try { authRelay?.server.close(); } catch { /* already closed */ }
   try { await teardown(); } catch (err) { console.error('[browser-bridge] teardown error:', err.message); }
   process.exit(0);
 };

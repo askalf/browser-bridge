@@ -32,7 +32,7 @@ Bundling a browser into every agent / scraper / MCP server / test runner is over
 - **Optional token auth** — set `BRIDGE_TOKEN` and every CDP request/WebSocket must present it (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). The one thing raw CDP has always been missing. Off by default.
 - **Connect by service name** — Chromium rejects DNS names in the Host header, which is why remote-CDP setups usually make you dig up the container IP. The proxy bridges that: `connectOverCDP('http://browser:9222')` works with a compose service name (with token auth on, or via `BRIDGE_ALLOW_HOSTNAMES=1`).
 - **Realistic browser args** — 1920×1080 viewport, `en-US,en` lang, accelerated 2D canvas, WebGL on, font-render hinting set. Many "headless" containers fail bot checks because they ship without these; we ship with them.
-- **Optional VPN proxy** — set `HTTPS_PROXY` or `HTTP_PROXY` to route Chromium's traffic through a VPN sidecar (Gluetun, etc.). Supported out of the box.
+- **Optional VPN proxy, *with* auth** — set `HTTPS_PROXY` or `HTTP_PROXY` to route Chromium's traffic through a VPN sidecar (Gluetun, etc.). Credentials work too: Chromium can't authenticate to a proxy from the command line, so when the URL carries `user:pass` the image stands up a loopback relay that supplies `Proxy-Authorization` on its behalf. Authenticated residential / rotating proxies work without `page.authenticate()`, so external CDP clients keep the `Fetch` domain to themselves.
 - **Non-root** — runs as the `browser` user, not root. CDP escapes don't get privilege.
 - **CDP origin lock** — `--remote-allow-origins` defaults to loopback origins instead of `*`, closing the DNS-rebinding / cross-origin CDP hijack hole. CDP libraries (Playwright, Puppeteer) send no Origin header and are unaffected; override with `CDP_ALLOWED_ORIGIN` if your client needs one.
 - **Idle page reaper** — clients that die without closing their tabs no longer leak them. Idle blank tabs, pages idle past a TTL, and pages beyond a hard count cap get closed; idle is measured from last *navigation*, so an actively reused page is never reaped. All tunable.
@@ -81,6 +81,36 @@ services:
       HTTPS_PROXY: http://localhost:8888
       HTTP_PROXY: http://localhost:8888
 ```
+
+### With an authenticated proxy
+
+Commercial residential / rotating proxies want a username and password. Put them
+in the URL:
+
+```yaml
+services:
+  browser:
+    image: ghcr.io/askalf/browser-bridge:latest
+    shm_size: '512m'
+    environment:
+      HTTPS_PROXY: http://${PROXY_USER}:${PROXY_PASS}@proxy.example.net:8080
+```
+
+Chromium itself has no way to accept those credentials — it strips them out of
+`--proxy-server` and expects a human to answer the `407`. So when credentials
+are present, browser-bridge starts a small relay on loopback, points Chromium at
+that, and adds the `Proxy-Authorization` header to everything going upstream.
+The browser never sees the password, and neither do the logs: the startup line
+prints `http://user:***@host:port`.
+
+Two things to know:
+
+- The relay is an **open proxy on `127.0.0.1` inside the container**. That's
+  fine when the container is the trust boundary, which is the normal case — but
+  don't run it with host networking on a shared host and assume otherwise.
+- `https://` proxy URLs (TLS to the proxy itself) aren't supported with
+  credentials; use an `http://` proxy endpoint. It fails at startup rather than
+  at your first navigation.
 
 ### Connect from Playwright
 
@@ -282,8 +312,8 @@ Then point a client at `http://<host>:9225/mcp`. **Each MCP session opens one br
 | Env var | Default | Effect |
 |---|---|---|
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Which Chromium binary to launch (rarely needs overriding). |
-| `HTTPS_PROXY` | unset | Outbound proxy passed to Chromium as `--proxy-server`. |
-| `HTTP_PROXY` | unset | Same as `HTTPS_PROXY`; either works. |
+| `HTTPS_PROXY` | unset | Outbound proxy passed to Chromium as `--proxy-server`. Accepts `http://user:pass@host:port` — see [With an authenticated proxy](#with-an-authenticated-proxy). |
+| `HTTP_PROXY` | unset | Same as `HTTPS_PROXY`; either works (`HTTPS_PROXY` wins if both are set). |
 | `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated Origin header values allowed on CDP websocket connections (`--remote-allow-origins`). Most CDP clients send no Origin header and don't need this. |
 | `BRIDGE_TOKEN` | unset | Shared secret required on every CDP request/WebSocket when set (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). Unset = open, pre-0.2.0 behavior. |
 | `BRIDGE_ALLOW_HOSTNAMES` | unset | Accept DNS-name Host headers (compose service names) *without* a token. Not needed when `BRIDGE_TOKEN` is set. Opt-in because Chromium's Host check doubles as DNS-rebinding protection. |
