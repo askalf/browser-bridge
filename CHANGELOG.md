@@ -10,6 +10,20 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 `vX.Y.Z`, and the release.yml workflow will build + push the GHCR image.
 -->
 
+## [0.4.0] - 2026-08-09
+
+### Added — authenticated upstream proxies (`http://user:pass@host:port`)
+
+- `HTTPS_PROXY` / `HTTP_PROXY` now accept credentials. Previously the URL was passed straight to `--proxy-server`, and **Chromium discards the credentials it finds there** — there is no `--proxy-auth` flag, because the browser expects a human to answer the `407`. Every authenticated proxy was therefore unusable from this image: commercial residential and rotating proxies, and any VPN sidecar with auth switched on. The failure mode gave no clue either, since the flag was accepted and only navigation failed.
+- When credentials are present, `proxy-auth-relay.mjs` starts a small HTTP proxy on an ephemeral **loopback** port and Chromium is pointed at that instead. The relay adds `Proxy-Authorization: Basic …` to forwarded requests and to the `CONNECT` it issues upstream. Chromium's network stack is untouched.
+- Deliberately **not** `page.authenticate()`, the usual workaround. It enables the CDP `Fetch` domain on each page, and this image exists to be driven by *external* CDP clients — a client calling `setRequestInterception` would then be fighting the bridge for the same domain. Trading away request interception to gain proxy auth is the wrong trade here specifically.
+- Bytes that arrive alongside the upstream response head, and the bytes Chromium writes immediately after `CONNECT` (the TLS ClientHello), are both forwarded. Dropping either stalls the handshake with no error to explain it.
+- A non-200 from upstream is relayed **verbatim** rather than flattened into a 502, so a wrong password surfaces as the proxy's own `407` and is legible in the browser's error.
+- Per-hop headers (RFC 9110 §7.6.1) are stripped in both directions. `transfer-encoding` is the one that bites: Node has already decoded a chunked body by the time the relay sees it, so forwarding the header would announce an encoding the bytes no longer carry.
+- The password never reaches stdout: the startup line and every relay log message print `http://user:***@host:port`, asserted by a test. Credentials are percent-decoded, so a password containing `@` or `:` survives.
+- Authenticated `https://` proxy URLs (TLS to the proxy itself) are rejected at startup rather than failing at first navigation — the relay does not implement that hop.
+- The relay binds `127.0.0.1` only and authenticates nobody; it is an open proxy scoped to the container, which is the trust boundary in the normal deployment. `test/proxy-auth-relay.test.mjs` covers the wire behaviour against a fake upstream proxy — credential injection on both paths, tunnel payload in both directions, `407` pass-through, unreachable-upstream `502`, loopback bind, and that a client-supplied `Proxy-Authorization` cannot displace the injected one.
+
 ## [0.3.5] - 2026-07-26
 
 ### Fixed — a profile on a volume wedged the container on every restart
