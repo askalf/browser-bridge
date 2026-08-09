@@ -105,16 +105,28 @@ function trackSockets(server) {
  * it answer 407 unless exactly that credential arrives.
  */
 function startFakeUpstream({ expectedCredential = null } = {}) {
-  const seen = { connectAuth: [], requestAuth: [], connectTargets: [], tunnelPayload: [] };
+  const seen = {
+    connectAuth: [], requestAuth: [], requestHeaders: [],
+    connectTargets: [], tunnelPayload: [],
+  };
 
   const server = http.createServer((req, res) => {
     seen.requestAuth.push(req.headers['proxy-authorization'] ?? null);
+    seen.requestHeaders.push(req.headers);
     if (expectedCredential && req.headers['proxy-authorization'] !== expectedCredential) {
       res.writeHead(407, { 'proxy-authenticate': 'Basic realm="fake"' });
       res.end('denied');
       return;
     }
-    res.writeHead(200, { 'content-type': 'text/plain', 'x-upstream-path': req.url });
+    res.writeHead(200, {
+      'content-type': 'text/plain',
+      'x-upstream-path': req.url,
+      // Per-hop headers the relay must not pass on to the client. The value is
+      // deliberately distinctive: Node emits a `Keep-Alive` of its own for the
+      // relay's hop, so only a marker proves which one the client received.
+      connection: 'keep-alive',
+      'keep-alive': 'timeout=99, max=upstreamhop',
+    });
     res.end('forwarded');
   });
 
@@ -295,6 +307,43 @@ test('relay — plain http requests are forwarded with the credential', async ()
     // The absolute-form target must survive the hop unchanged.
     assert.equal(body.headers['x-upstream-path'], 'http://example.com/thing');
     assert.equal(upstream.seen.requestAuth[0], CREDENTIAL);
+  });
+});
+
+test('relay — per-hop headers are stripped in both directions', async () => {
+  // A proxy that forwards `transfer-encoding` describes an encoding the bytes
+  // no longer carry (Node already decoded them), and forwarding `connection`
+  // lets one hop dictate the other's socket lifetime.
+  await withRelay({ expectedCredential: CREDENTIAL }, async ({ upstream, relay }) => {
+    const res = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1', port: relay.port, method: 'GET',
+        path: 'http://example.com/thing',
+        headers: {
+          host: 'example.com',
+          connection: 'keep-alive',
+          'proxy-connection': 'keep-alive',
+          te: 'trailers',
+          'x-keep-me': 'yes',
+        },
+        agent: false,
+      }, (r) => { r.resume(); r.on('end', () => resolve(r)); });
+      req.on('error', reject);
+      req.end();
+    });
+
+    const sentUp = upstream.seen.requestHeaders[0];
+    assert.equal(sentUp['proxy-connection'], undefined, 'proxy-connection reached upstream');
+    assert.equal(sentUp.te, undefined, 'te reached upstream');
+    assert.equal(sentUp['x-keep-me'], 'yes', 'an ordinary header was dropped');
+
+    // Node writes its own Keep-Alive for the relay-to-client hop; what must not
+    // appear is the upstream's.
+    assert.ok(
+      !String(res.headers['keep-alive'] ?? '').includes('upstreamhop'),
+      `upstream keep-alive reached the client: ${res.headers['keep-alive']}`,
+    );
+    assert.equal(res.headers['x-upstream-path'], 'http://example.com/thing');
   });
 });
 

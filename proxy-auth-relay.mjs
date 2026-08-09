@@ -110,6 +110,26 @@ function credentialHeader(username, password) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 }
 
+// Headers that describe a single hop and must not be forwarded to the next one
+// (RFC 9110 §7.6.1). `transfer-encoding` is the one that bites: Node has already
+// decoded a chunked body by the time we see it, so passing the header along
+// would tell the client to expect an encoding the bytes no longer carry.
+const HOP_BY_HOP = new Set([
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+  'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade',
+]);
+
+// Copy a header bag, dropping the per-hop entries. Built on a null-prototype
+// object so a header literally named `__proto__` or `constructor` is data
+// rather than a prototype write.
+function forwardableHeaders(headers) {
+  const out = Object.create(null);
+  for (const name of Object.keys(headers)) {
+    if (!HOP_BY_HOP.has(name.toLowerCase())) out[name] = headers[name];
+  }
+  return out;
+}
+
 // Read up to the end of the upstream's response head, then hand back the head
 // and whatever body bytes arrived with it.
 function readResponseHead(socket, onHead, onFail) {
@@ -153,12 +173,17 @@ export function createAuthRelay({ host, port, username, password, log = () => {}
       port,
       method: req.method,
       path: req.url,
-      headers: { ...req.headers, 'proxy-authorization': credential },
+      headers: { ...forwardableHeaders(req.headers), 'proxy-authorization': credential },
       setHost: false,
     });
 
     upstream.on('response', (upstreamRes) => {
-      res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
+      // Header names here come from the origin server, which is remote and
+      // untrusted — but relaying them is the entire job of a proxy, and this
+      // one talks only to Chromium, the intended recipient. Node rejects
+      // invalid header names and CR/LF in values, so response splitting isn't
+      // reachable; what does need handling is the per-hop set, dropped above.
+      res.writeHead(upstreamRes.statusCode, forwardableHeaders(upstreamRes.headers));
       upstreamRes.pipe(res);
     });
     upstream.on('error', (err) => {
