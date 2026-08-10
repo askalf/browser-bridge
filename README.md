@@ -32,7 +32,7 @@ Bundling a browser into every agent / scraper / MCP server / test runner is over
 - **Optional token auth** — set `BRIDGE_TOKEN` and every CDP request/WebSocket must present it (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). The one thing raw CDP has always been missing. Off by default.
 - **Connect by service name** — Chromium rejects DNS names in the Host header, which is why remote-CDP setups usually make you dig up the container IP. The proxy bridges that: `connectOverCDP('http://browser:9222')` works with a compose service name (with token auth on, or via `BRIDGE_ALLOW_HOSTNAMES=1`).
 - **Realistic browser args** — 1920×1080 viewport, `en-US,en` lang, accelerated 2D canvas, WebGL on, font-render hinting set. Many "headless" containers fail bot checks because they ship without these; we ship with them.
-- **Optional VPN proxy, *with* auth** — set `HTTPS_PROXY` or `HTTP_PROXY` to route Chromium's traffic through a VPN sidecar (Gluetun, etc.). Credentials work too: Chromium can't authenticate to a proxy from the command line, so when the URL carries `user:pass` the image stands up a loopback relay that supplies `Proxy-Authorization` on its behalf. Authenticated residential / rotating proxies work without `page.authenticate()`, so external CDP clients keep the `Fetch` domain to themselves.
+- **Optional VPN proxy, *with* auth** — set `HTTPS_PROXY` or `HTTP_PROXY` to route Chromium's traffic through a VPN sidecar (Gluetun, etc.). Credentials work too: Chromium can't authenticate to a proxy from the command line, so when the URL carries `user:pass` the image stands up a loopback relay that supplies `Proxy-Authorization` on its behalf. Authenticated residential / rotating proxies work without `page.authenticate()`, so external CDP clients keep the `Fetch` domain to themselves. Opt into `PROXY_FALLBACK=direct` and a dead proxy degrades to the container's own route instead of taking browsing down with it.
 - **Non-root** — runs as the `browser` user, not root. CDP escapes don't get privilege.
 - **CDP origin lock** — `--remote-allow-origins` defaults to loopback origins instead of `*`, closing the DNS-rebinding / cross-origin CDP hijack hole. CDP libraries (Playwright, Puppeteer) send no Origin header and are unaffected; override with `CDP_ALLOWED_ORIGIN` if your client needs one.
 - **Idle page reaper** — clients that die without closing their tabs no longer leak them. Idle blank tabs, pages idle past a TTL, and pages beyond a hard count cap get closed; idle is measured from last *navigation*, so an actively reused page is never reaped. All tunable.
@@ -111,6 +111,47 @@ Two things to know:
 - `https://` proxy URLs (TLS to the proxy itself) aren't supported with
   credentials; use an `http://` proxy endpoint. It fails at startup rather than
   at your first navigation.
+
+### When the proxy goes away
+
+By default, an upstream proxy is a hard dependency: if it stops answering, every
+navigation fails. Set `PROXY_FALLBACK=direct` and the relay instead retries the
+request straight out of the container.
+
+```yaml
+    environment:
+      HTTPS_PROXY: http://${PROXY_USER}:${PROXY_PASS}@proxy.example.net:8080
+      PROXY_FALLBACK: direct           # keep browsing if the proxy dies
+      PROXY_CONNECT_TIMEOUT_MS: '8000' # how long to wait before calling it dead
+```
+
+**Decide this per deployment — the default is off on purpose.** Going direct
+means the same browser, carrying the same logged-in cookies, suddenly appears
+from a different address and a different ASN. If you're using a proxy for its
+*exit address*, a silent switch mid-session is worse than an outage: it's the
+shape of thing that trips an account security challenge. If you're using one
+because it's the only route out, failing over is obviously right.
+
+What it will and won't fail over on:
+
+- **Only unreachability counts.** Connection refused, host/network unreachable,
+  DNS failure, connect timeout, a reset before the tunnel is up.
+- **Never an answer.** A `407`, a refused `CONNECT`, any status the proxy
+  actually sends is the proxy working and saying no. Failing over on those would
+  turn a wrong password into a silent egress change you'd never notice.
+- **Timeout, not just errors.** A tunnel whose far end has vanished usually
+  swallows packets rather than refusing them, so `PROXY_CONNECT_TIMEOUT_MS`
+  (default `8000`) is what actually fires in the most likely failure. Without
+  it, navigations would just hang.
+- **One failure trips the breaker**, not three — each retry costs a stalled
+  page load. Subsequent requests go direct immediately and the relay re-probes
+  the upstream after 30s, returning to it as soon as it answers.
+
+Degradation is visible but never fatal: `/healthz` reports `"egress": "direct"`
+and `"degraded": true` while still returning `200`, and `/metrics` counts
+`proxyFallbacks`. The status code is deliberately not gated on it — a `503` here
+would hand a working-but-degraded browser to your autoheal or health-gated
+deploy and turn it into a restart loop.
 
 ### Connect from Playwright
 
@@ -314,6 +355,8 @@ Then point a client at `http://<host>:9225/mcp`. **Each MCP session opens one br
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Which Chromium binary to launch (rarely needs overriding). |
 | `HTTPS_PROXY` | unset | Outbound proxy passed to Chromium as `--proxy-server`. Accepts `http://user:pass@host:port` — see [With an authenticated proxy](#with-an-authenticated-proxy). |
 | `HTTP_PROXY` | unset | Same as `HTTPS_PROXY`; either works (`HTTPS_PROXY` wins if both are set). |
+| `PROXY_FALLBACK` | `off` | `direct` = when the upstream proxy is unreachable, send the request straight out instead of failing. Only applies to a credentialed proxy URL (it needs the relay). Never triggers on a `407` or any other answer the proxy sends. See [When the proxy goes away](#when-the-proxy-goes-away). |
+| `PROXY_CONNECT_TIMEOUT_MS` | `8000` | How long to wait for the upstream proxy's TCP connect before treating it as dead. Only used when `PROXY_FALLBACK=direct`; it's what catches a black-holed tunnel, which never errors. |
 | `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated Origin header values allowed on CDP websocket connections (`--remote-allow-origins`). Most CDP clients send no Origin header and don't need this. |
 | `BRIDGE_TOKEN` | unset | Shared secret required on every CDP request/WebSocket when set (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). Unset = open, pre-0.2.0 behavior. |
 | `BRIDGE_ALLOW_HOSTNAMES` | unset | Accept DNS-name Host headers (compose service names) *without* a token. Not needed when `BRIDGE_TOKEN` is set. Opt-in because Chromium's Host check doubles as DNS-rebinding protection. |

@@ -10,6 +10,19 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 `vX.Y.Z`, and the release.yml workflow will build + push the GHCR image.
 -->
 
+## [0.5.0] - 2026-08-10
+
+### Added — `PROXY_FALLBACK=direct`: an upstream proxy is no longer a hard dependency
+
+- With `PROXY_FALLBACK=direct`, a request the relay cannot get *to* the upstream proxy is retried straight out of the container instead of failing. Off by default, and that default is the interesting part: when a proxy is there for its **exit address**, going direct means the same browser, carrying the same logged-in cookies, suddenly appearing from a different address and a different ASN — the shape of event that trips an account security challenge. For that workload a silent relocation is worse than an outage, so it is the deployment's call, not the image's.
+- **Only unreachability fails over — never an answer.** `ECONNREFUSED`, `EHOSTUNREACH`, `ENETUNREACH`, `ENETDOWN`, `ETIMEDOUT`, `ECONNRESET`, `ENOTFOUND`, `EAI_AGAIN`, `EPIPE`, and a connect timeout. A `407`, a refused `CONNECT`, any status the proxy actually sends is the proxy working and saying no, and is still relayed verbatim; papering over those would convert a wrong password into a silent egress change that nothing would ever report. A test asserts the `407` case specifically.
+- **A connect timeout, not just error codes** (`PROXY_CONNECT_TIMEOUT_MS`, default `8000`). This is what actually fires in the likeliest real failure: a tunnel whose far end has gone away swallows packets rather than refusing them, so the socket neither connects nor errors. `net.connect` has no default timeout, so before this the black-hole case would have hung every navigation indefinitely — the failover would never have run in the case it was written for. The timeout is armed only until the TCP connect lands, so it can never truncate a long-lived tunnel.
+- On the plain-HTTP path the request body is not piped upstream until the socket actually connects, which is what makes the retry replayable — a half-consumed stream cannot be re-sent. `settled` / `piped` flags keep a late error from double-responding.
+- **The breaker trips on the first failure, not the third.** Each retry against a dead upstream costs a stalled page load, so there is no value in re-proving it. It re-probes after 30s (`breakerCooldownMs`) and returns to the upstream as soon as it answers, so a proxy that comes back is used again without a restart. A test asserts the second request through an open breaker completes in <250ms.
+- Degradation is **reported, never gated on**: `/healthz` gains `egress` (`upstream` | `direct`) and `degraded`, and still returns `200`; `/metrics` gains `egress` and a `proxyFallbacks` counter. A `503` here would hand a working-but-degraded browser to autoheal and to any deploy that health-gates its rollout, turning a degraded egress into a restart loop and an image rollback — strictly worse than the condition being reported.
+- `PROXY_FALLBACK=direct` without credentials in the proxy URL logs that it is being ignored rather than failing quietly: the failover lives in the auth relay, and the relay only runs for a credentialed URL.
+- 10 new tests in `test/proxy-auth-relay.test.mjs` — off-by-default 502, `CONNECT` fallback on refusal, fallback on a silent (black-hole) upstream, `407` *not* failed over, breaker skipping a dead upstream, breaker staying shut on a healthy one, the plain-HTTP path, `egressStatus()`, and IPv6-bracket handling in `splitHostPort`.
+
 ## [0.4.0] - 2026-08-09
 
 ### Added — authenticated upstream proxies (`http://user:pass@host:port`)
