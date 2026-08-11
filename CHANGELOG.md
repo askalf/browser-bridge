@@ -10,6 +10,14 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 `vX.Y.Z`, and the release.yml workflow will build + push the GHCR image.
 -->
 
+## [0.5.1] - 2026-08-11
+
+### Fixed — Chromium's own background chatter went out through the upstream proxy
+
+- `COMMON_ARGS` gains `--disable-background-networking`, `--disable-component-update`, `--disable-domain-reliability`, `--disable-sync`, `--no-default-browser-check`. None of this was reachable by anything a client navigated to — it's Chromium's own GCM channel, component-update pings, domain-reliability beacons, and sync handshake, none of which this image's use case (a remote CDP target) has any use for.
+- Found by reading a residential connector's connection log: a `www.google.com:443` open roughly once a minute, tracing back to `runPageCheck()` — the `/healthz` deep check opens a fresh browser context every 60s, and a fresh context re-triggers Chromium's background-networking bootstrap. On a metered or residential upstream that's continuous unattributable egress; on a proxy sized for one browser's actual traffic, it's noise competing with real navigations.
+- These are launch-time flags, so they apply once to the whole browser instance, not per-context — `runPageCheck()`'s contexts are covered along with every client-driven one.
+
 ## [0.5.0] - 2026-08-10
 
 ### Added — `PROXY_FALLBACK=direct`: an upstream proxy is no longer a hard dependency

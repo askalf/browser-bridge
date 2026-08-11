@@ -132,6 +132,14 @@ const COMMON_ARGS = [
   '--disable-features=IsolateOrigins,site-per-process',
   '--enable-features=NetworkService,NetworkServiceInProcess',
   '--enable-webgl', '--enable-accelerated-2d-canvas', '--font-render-hinting=medium',
+  // Every launch — including the fresh browser context runPageCheck() opens on
+  // each healthcheck tick — otherwise pulls Chromium's own background chatter
+  // (GCM, component updates, domain-reliability beacons, Sync) through
+  // whatever proxy is wired in. On a metered/residential upstream that's
+  // ongoing egress this image never asked for, on nothing it navigated to.
+  '--disable-background-networking', '--disable-component-update',
+  '--disable-domain-reliability', '--disable-sync',
+  '--no-default-browser-check',
 ];
 // Upstream proxy. Chromium strips credentials out of --proxy-server and has no
 // flag to supply them, so when the URL carries a user:pass we stand up a
