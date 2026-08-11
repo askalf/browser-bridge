@@ -70,8 +70,18 @@ const UNREACHABLE = new Set([
   'ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE',
 ]);
 
+// Match on the code ALONE. A code-less error used to count as unreachable too,
+// which inverted the safety property this whole module is built around: the
+// only code-less errors that reach here are ones WE synthesise, and the
+// oversized-response-head guard below is one of them. An upstream that answers
+// with a >32KB head is a proxy that ANSWERED — treating it as unreachable
+// tripped the breaker and silently moved the browser onto the direct exit,
+// exactly what the 407 path refuses to do a few lines down. Every genuine
+// unreachable case carries a code: real socket failures come from the syscall
+// with one, and both synthetic connect timeouts tag `code: 'ETIMEDOUT'`
+// deliberately so they qualify here without needing a catch-all.
 function isUnreachable(err) {
-  return Boolean(err) && (UNREACHABLE.has(err.code) || err.code === undefined);
+  return Boolean(err) && UNREACHABLE.has(err.code);
 }
 
 // Mask a `user:pass@` authority in a string that may not be a valid URL.
@@ -208,6 +218,9 @@ function readResponseHead(socket, onHead, onFail) {
     const end = buffer.indexOf('\r\n\r\n');
     if (end === -1) {
       // A proxy that never terminates its head would otherwise buffer forever.
+      // Deliberately code-less: this is a protocol violation from a proxy that
+      // is reachable and talking, so isUnreachable() must NOT match it and the
+      // request must fail as a 502 rather than silently switching exit address.
       if (buffer.length > 32768) {
         socket.removeListener('data', onData);
         onFail(new Error('upstream response head exceeded 32KB'));

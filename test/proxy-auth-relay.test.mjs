@@ -530,6 +530,47 @@ test('failover — a 407 is NOT failed over: the upstream answered', async () =>
   }
 });
 
+/**
+ * Answers a CONNECT with a response head that never terminates, so the relay's
+ * 32KB guard fires. The far end is REACHABLE and talking — it is just speaking
+ * badly — which is what makes this a negative failover case.
+ */
+function startBloatedHeadUpstream() {
+  const server = net.createServer((socket) => {
+    socket.on('data', () => {
+      // No CRLFCRLF, ever. Comfortably past the 32768-byte guard.
+      socket.write('HTTP/1.1 200 Connection Established\r\n');
+      socket.write(`x-junk: ${'A'.repeat(40000)}\r\n`);
+    });
+  });
+  const stop = trackSockets(server);
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ port: server.address().port, stop }));
+  });
+}
+
+test('failover — an oversized response head is NOT failed over: the upstream answered', async () => {
+  // The same safety property as the 407 case, reached by a different door.
+  // isUnreachable() used to return true for any error with no `.code`, and the
+  // 32KB guard raises exactly such an error — so a proxy that merely answered
+  // with a bloated head tripped the breaker and silently relocated the browser
+  // to the direct exit. That is deanonymisation triggered by whatever the
+  // upstream chooses to send, which is the one thing this must never do quietly.
+  const bloated = await startBloatedHeadUpstream();
+  const origin = await startEchoOrigin();
+  try {
+    await withFailoverRelay({ upstreamPort: bloated.port }, async ({ port, server }) => {
+      const res = await connectThroughRelay(port, `127.0.0.1:${origin.port}`);
+      assert.equal(res.status, 502, 'a talking-but-broken upstream must surface as an error');
+      assert.equal(server.egressStatus(), 'upstream', 'breaker must not trip on an answer');
+      res.socket.destroy();
+    });
+  } finally {
+    bloated.stop();
+    origin.stop();
+  }
+});
+
 test('failover — the breaker skips the dead upstream on subsequent requests', async () => {
   // Otherwise every request pays the full connect timeout while the tunnel is
   // down, and "working fallback" still means an unusable browser.
