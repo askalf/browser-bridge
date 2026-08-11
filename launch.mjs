@@ -137,6 +137,9 @@ const COMMON_ARGS = [
   // (GCM, component updates, domain-reliability beacons, Sync) through
   // whatever proxy is wired in. On a metered/residential upstream that's
   // ongoing egress this image never asked for, on nothing it navigated to.
+  // --disable-component-update also stops CRLSet (certificate-revocation)
+  // updates, since Chromium ships that as a component too — an accepted
+  // trade for an ephemeral, trusted-client CDP target; see CHANGELOG.
   '--disable-background-networking', '--disable-component-update',
   '--disable-domain-reliability', '--disable-sync',
   '--no-default-browser-check',
