@@ -29,6 +29,14 @@
  *                                 for an authenticated proxy — credentials are
  *                                 served by a loopback relay, since Chromium
  *                                 cannot authenticate to a proxy itself.
+ *   PROXY_FALLBACK              — 'off' (default) | 'direct'. What to do when
+ *                                 the upstream proxy is unreachable: fail, or
+ *                                 egress straight out of the container. See
+ *                                 the failover note in proxy-auth-relay.mjs —
+ *                                 'direct' trades an outage for a changed exit
+ *                                 address, which is not always the better deal.
+ *   PROXY_CONNECT_TIMEOUT_MS    — treat the upstream as unreachable after this
+ *                                 long without a TCP connection. Default 8000.
  *   CDP_ALLOWED_ORIGIN          — allowed CDP websocket Origin values.
  *   BRIDGE_TOKEN                — shared secret; when set every CDP request /
  *                                 WebSocket must present it.
@@ -130,17 +138,35 @@ const COMMON_ARGS = [
 // loopback relay that adds Proxy-Authorization and point Chromium at that
 // instead. See proxy-auth-relay.mjs for why this rather than page.authenticate().
 const HTTP_PROXY = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY;
+// What happens when the upstream proxy cannot be reached. Off by default: for
+// a residential/VPN route the exit address IS the feature, so quietly leaving
+// by the container's own IP can be worse than not leaving at all. Only the
+// deployment knows which, so only the deployment turns it on.
+const PROXY_FALLBACK = (process.env.PROXY_FALLBACK || 'off').trim().toLowerCase();
+const PROXY_CONNECT_TIMEOUT_MS = parseInt(process.env.PROXY_CONNECT_TIMEOUT_MS || '8000', 10);
 let authRelay = null;
+// Counts failovers so a degraded egress shows up in /metrics rather than only
+// in the logs, where nothing is watching.
+let proxyFallbacks = 0;
 if (HTTP_PROXY) {
   const upstream = parseProxyUrl(HTTP_PROXY);
   let proxyArg = upstream.proxyArg;
   if (upstream.hasCredentials) {
     authRelay = await startAuthRelay({
       ...upstream,
+      fallback: PROXY_FALLBACK,
+      connectTimeoutMs: PROXY_CONNECT_TIMEOUT_MS,
       log: (msg) => console.log(`[browser-bridge] proxy-auth-relay: ${msg}`),
+      onEvent: (event) => { if (event === 'fallback-open') proxyFallbacks++; },
     });
     proxyArg = authRelay.url;
     console.log(`[browser-bridge] proxy auth relay on ${authRelay.url} -> ${upstream.redacted}`);
+    console.log(`[browser-bridge] upstream-unreachable policy: ${PROXY_FALLBACK === 'direct' ? 'fall back to DIRECT egress' : 'fail (set PROXY_FALLBACK=direct to change)'}`);
+  } else if (PROXY_FALLBACK === 'direct') {
+    // Without credentials there is no relay in the path — Chromium talks to
+    // the proxy itself, and nothing of ours is positioned to retry. Say so
+    // rather than letting the operator believe failover is armed.
+    console.log('[browser-bridge] PROXY_FALLBACK=direct ignored: it needs the auth relay, which only runs for a credentialed proxy URL');
   }
   COMMON_ARGS.push(`--proxy-server=${proxyArg}`);
   // Redacted: HTTPS_PROXY may carry a password and this line lands in the
@@ -209,14 +235,28 @@ const healthServer = http.createServer(async (req, res) => {
       hostBlocked: metrics.hostBlocked,
       cdpConnectionsTotal: metrics.cdpConnectionsTotal,
       cdpConnectionsActive: metrics.cdpConnectionsActive,
+      egress: authRelay ? authRelay.egressStatus() : 'direct',
+      proxyFallbacks,
       ...snapshotMetrics(),
     }));
     return;
   }
   metrics.healthChecks++;
   const h = await getHealth();
+  // `egress` is reported, never gated on. A container that has failed over is
+  // still doing its job, and 503-ing here would hand it to autoheal and to any
+  // deploy that health-gates a rollout — turning a degraded browser into a
+  // restart loop. Degradation belongs in the payload, not in the status code.
+  const egress = authRelay ? authRelay.egressStatus() : 'direct';
   res.writeHead(h.ok ? 200 : 503, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ ok: h.ok, connected: h.ok, pageCheck: h.pageCheck, pagesOpen: h.pagesOpen }));
+  res.end(JSON.stringify({
+    ok: h.ok,
+    connected: h.ok,
+    pageCheck: h.pageCheck,
+    pagesOpen: h.pagesOpen,
+    egress,
+    degraded: Boolean(authRelay) && egress !== 'upstream',
+  }));
 });
 healthServer.on('error', (err) => console.error('[browser-bridge] health server error:', err.message));
 healthServer.listen(HEALTH_PORT, '127.0.0.1', () => {
