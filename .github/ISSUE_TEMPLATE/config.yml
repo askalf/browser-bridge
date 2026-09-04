@@ -1,0 +1,10 @@
+# blank_issues_enabled stays TRUE on purpose: a template that does not fit is a
+# reason to file a plain issue, not a reason to give up. The templates exist to
+# make the common reports good, not to gate the uncommon ones.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/askalf/browser-bridge/security/advisories/new
+    about: >
+      Never file a vulnerability as a public issue. Private advisories let us
+      ship a fix before the details are public — see SECURITY.md.
