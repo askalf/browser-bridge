@@ -10,6 +10,12 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 `vX.Y.Z`, and the release.yml workflow will build + push the GHCR image.
 -->
 
+## [Unreleased]
+
+### Changed
+
+- README rewritten as a trust document: a "who can do what" table for every party on the CDP path, a guarantees table where each row names the code that enforces it and a command that checks it against a running container, four explicit caveats (`--no-sandbox`, open-by-default CDP, the loopback relay, CRLSet under `--disable-component-update`), an architecture diagram, and a releases-and-supply-chain section with the provenance verify command. Fixes a stale claim: "not session-pinned" predated isolated session mode.
+
 ## [0.5.1] - 2026-08-11
 
 ### Fixed — Chromium's own background chatter went out through the upstream proxy

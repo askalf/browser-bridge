@@ -1,67 +1,170 @@
+<div align="center">
+
 # browser-bridge
 
+**Own your browser.**
+
+One stealth headless Chromium in a container, exposing Chrome DevTools Protocol on port 9222 with the two things raw CDP never had: **authentication** and **a trust boundary you can read**. Connect from Playwright, Puppeteer, an MCP client, or any agent that wants a real browser without bundling one.
+
+[![Build](https://img.shields.io/github/actions/workflow/status/askalf/browser-bridge/build.yml?style=for-the-badge&label=build&labelColor=020612)](https://github.com/askalf/browser-bridge/actions/workflows/build.yml)
+[![stealth](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/askalf/browser-bridge/badges/stealth.json&style=for-the-badge&labelColor=020612)](https://github.com/askalf/browser-bridge/actions/workflows/stealth.yml)
+[![GHCR](https://img.shields.io/badge/ghcr.io-askalf%2Fbrowser--bridge-00ff88?style=for-the-badge&labelColor=020612)](https://github.com/askalf/browser-bridge/pkgs/container/browser-bridge)
+[![License](https://img.shields.io/badge/MIT-00ff88?style=for-the-badge&label=license&labelColor=020612)](LICENSE)
+
+[![CodeQL](https://github.com/askalf/browser-bridge/actions/workflows/codeql.yml/badge.svg)](https://github.com/askalf/browser-bridge/actions/workflows/codeql.yml)
+[![ClusterFuzzLite](https://github.com/askalf/browser-bridge/actions/workflows/cflite.yml/badge.svg)](https://github.com/askalf/browser-bridge/actions/workflows/cflite.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/askalf/browser-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/askalf/browser-bridge)
 
-> _browser-bridge — own your browser — stealth headless Chromium, your CDP endpoint. Part of **[Own Your Stack](https://github.com/askalf)** — own your AI infrastructure instead of renting it by the token._
+[What sets it apart](#what-sets-it-apart) · [Who can do what](#who-can-do-what) · [Guarantees](#guarantees-and-how-to-check-them) · [Architecture](#architecture) · [Connect](#connect) · [Proxies](#egress-through-a-proxy) · [Sessions](#session-isolation) · [MCP](#mcp-endpoint) · [Configuration](#configuration) · [Releases](#releases-and-supply-chain)
 
-> Stealth headless Chromium in a container. Exposes Chrome DevTools Protocol (CDP) on port 9222. Connect from Playwright, Puppeteer, MCP browser tools, or any agent that wants a remote browser without bundling one.
+</div>
+
+---
 
 ```bash
-docker run --rm -p 9222:9222 --shm-size=512m ghcr.io/askalf/browser-bridge:latest
+docker run --rm -p 127.0.0.1:9222:9222 --shm-size=512m ghcr.io/askalf/browser-bridge:latest
 ```
 
 ```ts
-// Then connect from anywhere on the host
 import { chromium } from 'playwright';
 const browser = await chromium.connectOverCDP('http://localhost:9222');
 ```
 
-[![Build](https://img.shields.io/github/actions/workflow/status/askalf/browser-bridge/build.yml?style=flat-square&label=build&labelColor=020612)](https://github.com/askalf/browser-bridge/actions)
-[![stealth](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/askalf/browser-bridge/badges/stealth.json&style=flat-square&labelColor=020612)](https://github.com/askalf/browser-bridge/actions/workflows/stealth.yml)
-[![GHCR](https://img.shields.io/badge/ghcr.io-askalf%2Fbrowser--bridge-00ff88?style=flat-square&labelColor=020612)](https://github.com/askalf/browser-bridge/pkgs/container/browser-bridge)
-[![License](https://img.shields.io/badge/MIT-00ff88?style=flat-square&label=license&labelColor=020612)](LICENSE)
+That is the whole integration. Everything below is about what you are trusting when you do it.
 
-## Why
+## What sets it apart
 
-Bundling a browser into every agent / scraper / MCP server / test runner is overhead — image size, OS dependencies, font rendering, fingerprint maintenance. browser-bridge centralizes one browser container that any number of clients can share via CDP. Production-grade defaults (full puppeteer-extra stealth evasions, non-root user, healthcheck, optional VPN proxy) so you don't have to assemble them yourself.
+Most "headless Chrome in Docker" images are a `Dockerfile` around a browser. browser-bridge is what you get when the CDP port is treated as production infrastructure:
 
-## What you get
+- **The stealth score is measured, not asserted.** On every relevant push and PR, CI builds the image, drives it as an ordinary CDP client, and evaluates the bot-detection vectors that sannysoft and CreepJS probe, in-page, with no network ([`stealth-score.mjs`](stealth-score.mjs)). The badge above is that live number, and the build fails if it drops below the floor. Currently **13/13**.
+- **CDP gets an auth story.** Set `BRIDGE_TOKEN` and every request and WebSocket upgrade must present it. The compare is constant-time over a SHA-256 digest, the token is stripped before anything reaches Chromium, and failures are counted in `/metrics`. Off by default, and this README says so in three places rather than hiding it.
+- **The trust boundary is fuzzed.** ClusterFuzzLite runs two Jazzer.js targets weekly against the proxy's pure request guards and the user-agent picker ([`fuzz/`](fuzz)): the DNS-rebinding gate never passes a hostname, `?token=` never survives into the forwarded path, auth headers never leak upstream. OpenSSF Scorecard **Fuzzing**, **Pinned-Dependencies**, and **Token-Permissions** all score 10.
+- **Authenticated proxies just work.** Chromium discards the `user:pass` in `--proxy-server` and expects a human to answer the `407`. browser-bridge stands up a loopback relay that adds `Proxy-Authorization` on the browser's behalf, without `page.authenticate()`, so your CDP client keeps the `Fetch` domain to itself. The password never reaches the logs.
+- **Failover is a deliberate choice, off by default.** `PROXY_FALLBACK=direct` retries an *unreachable* proxy straight out of the container. It never fails over on a `407` or any other answer the proxy sends, because turning a wrong password into a silent change of exit address is worse than an outage.
+- **The container has to boot, not just build.** CI runs the image and waits for the post-launch marker. This exists because v0.3.0 shipped an image that built clean and crashed on start; the guard has been there since.
+- **The browser's own chatter stays home.** GCM, component update, domain-reliability beacons, and Sync are disabled at launch, so a metered or residential proxy carries only the traffic your client asked for.
+- **Ninety-six unit tests, no Docker required.** `npm test` runs the proxy, relay, broker, MCP server, profile lock, and UA suites against fakes and stubs, in seconds.
 
-- **Stealth** — puppeteer-extra with the full evasion set: `navigator.webdriver`, `navigator.plugins`, `navigator.languages`, WebGL vendor, Chrome runtime, iframe quirks, the works. `--enable-automation` is dropped from the default args. The **stealth badge** above isn't a claim — CI builds the image and drives it, as an ordinary CDP client, through a bot-detection battery (the vectors sannysoft / CreepJS probe) on every relevant change; the badge is that live score, and the build fails if it regresses. See [`stealth-score.mjs`](stealth-score.mjs).
-- **CDP on 0.0.0.0:9222** — Chromium binds to localhost on recent versions; a built-in HTTP-aware proxy fronts it on the wildcard so other containers (or your dev machine) can reach it.
-- **Optional token auth** — set `BRIDGE_TOKEN` and every CDP request/WebSocket must present it (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). The one thing raw CDP has always been missing. Off by default.
-- **Connect by service name** — Chromium rejects DNS names in the Host header, which is why remote-CDP setups usually make you dig up the container IP. The proxy bridges that: `connectOverCDP('http://browser:9222')` works with a compose service name (with token auth on, or via `BRIDGE_ALLOW_HOSTNAMES=1`).
-- **Realistic browser args** — 1920×1080 viewport, `en-US,en` lang, accelerated 2D canvas, WebGL on, font-render hinting set. Many "headless" containers fail bot checks because they ship without these; we ship with them.
-- **Optional VPN proxy, *with* auth** — set `HTTPS_PROXY` or `HTTP_PROXY` to route Chromium's traffic through a VPN sidecar (Gluetun, etc.). Credentials work too: Chromium can't authenticate to a proxy from the command line, so when the URL carries `user:pass` the image stands up a loopback relay that supplies `Proxy-Authorization` on its behalf. Authenticated residential / rotating proxies work without `page.authenticate()`, so external CDP clients keep the `Fetch` domain to themselves. Opt into `PROXY_FALLBACK=direct` and a dead proxy degrades to the container's own route instead of taking browsing down with it. Chromium's own background chatter — GCM, component updates, domain-reliability beacons, Sync — is disabled at launch, so it never rides along on a metered or residential proxy.
-- **Non-root** — runs as the `browser` user, not root. CDP escapes don't get privilege.
-- **CDP origin lock** — `--remote-allow-origins` defaults to loopback origins instead of `*`, closing the DNS-rebinding / cross-origin CDP hijack hole. CDP libraries (Playwright, Puppeteer) send no Origin header and are unaffected; override with `CDP_ALLOWED_ORIGIN` if your client needs one.
-- **Idle page reaper** — clients that die without closing their tabs no longer leak them. Idle blank tabs, pages idle past a TTL, and pages beyond a hard count cap get closed; idle is measured from last *navigation*, so an actively reused page is never reaped. All tunable.
-- **Health + metrics** — `/healthz` (CDP-connection health with a cached deep page-load check) and `/metrics` (pages open/created/reaped, nav count, uptime) on container-internal `:9224`. The Docker healthcheck hits `/healthz`, so "unhealthy" means the browser is actually gone — not just that a TCP port answers.
-- **Heartbeat logs** — one log line per minute with page/nav/reap counts. Pair with restart policy for self-recovery.
+## Who can do what
 
-## Usage
+A remote browser is a remote shell with a rendering engine. This is who sits on the path and what each party can do, in the default deployment (a private Docker network, no token). "Stores" means retained after the request.
 
-### Standalone
+| Party | Can do | Stores |
+|---|---|---|
+| **Anyone who can reach `:9222`** | Everything CDP allows: navigate anywhere, read every page, run script, read cookies the browser holds, take screenshots. With `BRIDGE_TOKEN` set, nothing without the token (`401`); with a hostname `Host` and no token, nothing (`403`). | Nothing on the bridge. |
+| **The CDP proxy** ([`cdp-proxy.mjs`](cdp-proxy.mjs)) | Sees every request and WebSocket frame as bytes. Checks the token, gates the `Host`, rewrites `Host` to loopback, strips the token, and pipes. No per-message CDP parsing on the hot path. | Counters only (`authFailures`, `hostBlocked`, connections). |
+| **Chromium** (`browser` user, `--no-sandbox`) | Whatever a page can do inside a Chromium process. Escapes land as the unprivileged `browser` user inside the container; the container is the sandbox. | The profile at `BRIDGE_USER_DATA_DIR` in shared mode (cookies, storage), which persists only if you mount a volume there. Isolated sessions use a fresh directory that is deleted on close. |
+| **The auth relay** ([`proxy-auth-relay.mjs`](proxy-auth-relay.mjs), only with a credentialed proxy URL) | Sees the plaintext of every HTTP request and the `CONNECT` targets of every HTTPS one. It is an **open proxy on `127.0.0.1` inside the container**. | Nothing. Logs print `http://user:***@host:port`. |
+| **Your upstream proxy or VPN** | Sees the exit traffic and, for plain HTTP, its content. | Per its own policy. |
+| **Sites you visit** | See a Chromium that passes the 13 scored vectors, the configured proxy's exit address, and whatever your client chooses to send. | Whatever they retain. Stealth is a regression gate against a fixed battery, **not** a guarantee against detection. |
+| **Health and metrics** (`:9224`) | Reachable only from inside the container. | Counters and uptime. |
+
+What this does not protect against: a client you have handed the token to, a host where `127.0.0.1` is shared with untrusted processes under `network_mode: host`, or a site that fingerprints something outside the battery. If you need egress *governance* rather than a browser, that is [fieldpass](https://github.com/askalf/fieldpass); browser-bridge is the substrate under it.
+
+## Guarantees, and how to check them
+
+Every row is enforced by code in this repo, and every row has a check you can run against a running container without trusting this file. `<c>` is your container name.
+
+| Guarantee | Enforced by | Verify it |
+|---|---|---|
+| Runs as an unprivileged user | `USER browser` in the [`Dockerfile`](Dockerfile); the process never has root inside the container | `docker exec <c> id` → a system uid named `browser`, never `uid=0` |
+| A hostname `Host` is refused without a token | `hostIsIpOrLocalhost()` in [`cdp-proxy.mjs`](cdp-proxy.mjs) preserves Chromium's own anti-DNS-rebinding posture; fuzzed in [`fuzz/cdp_guards.fuzz.js`](fuzz/cdp_guards.fuzz.js) | `curl -s -o /dev/null -w '%{http_code}' -H 'Host: browser' http://localhost:9222/json/version` → `403` |
+| With a token set, nothing without it | `presentedToken()` plus a `timingSafeEqual` over SHA-256 digests; token stripped before forwarding | `curl -s -o /dev/null -w '%{http_code}' http://localhost:9222/json/version` → `401`; add `?token=…` → `200` |
+| CDP WebSockets accept loopback origins only | `--remote-allow-origins` defaults to loopback, not `*` ([`launch.mjs`](launch.mjs)) | `docker exec <c> sh -c 'cat /proc/[0-9]*/cmdline 2>/dev/null \| tr "\0" " " \| grep -o -- "--remote-allow-origins=[^ ]*" \| head -1'` |
+| The browser makes no background calls of its own | `--disable-background-networking --disable-component-update --disable-domain-reliability --disable-sync` in `COMMON_ARGS` | Same command as above, grep for `--disable-background-networking` |
+| A proxy password never reaches stdout | Redaction in [`proxy-auth-relay.mjs`](proxy-auth-relay.mjs), asserted by a test | `docker logs <c> 2>&1 \| grep -c "$PROXY_PASS"` → `0` |
+| Failover never fires on a proxy's answer | Error-code match on unreachability only; a `407` is relayed verbatim ([`test/proxy-auth-relay.test.mjs`](test/proxy-auth-relay.test.mjs) asserts the `407` and oversized-head cases) | `npm test` |
+| Health reflects the browser, not a TCP port | `/healthz` checks the CDP connection and a cached deep page-load; the Docker `HEALTHCHECK` hits it | `docker exec <c> curl -s http://127.0.0.1:9224/healthz` → `{"ok":true,"connected":true,"pageCheck":"ok",…}` |
+| Health and metrics are not reachable from outside | Bound to `127.0.0.1` inside the container; the image `EXPOSE`s 9222 and 9225 only | `docker port <c>` lists no 9224 |
+| One profile directory, the one you configured | `buildLaunchOptions()` throws if `--user-data-dir` appears in args ([`launch-opts.mjs`](launch-opts.mjs)); [`test/launch-opts.test.mjs`](test/launch-opts.test.mjs) asserts a single profile source | Startup log line `[browser-bridge] profile: /home/browser/data`; `docker exec <c> ls /home/browser/data/Default` |
+| A killed container does not wedge its volume | `clearStaleSingletonLock()` removes Chromium's three singleton entries before launch ([`profile-lock.mjs`](profile-lock.mjs)) | `docker kill <c>`, then recreate with the same volume; it starts |
+| Isolated sessions cannot exhaust the host | `BRIDGE_MAX_SESSIONS` (default 20); acquisitions past it get `503` ([`session-broker.mjs`](session-broker.mjs)) | Open 21 connections in isolated mode; the 21st is refused |
+| The image you pull is the image CI built | Keyless Sigstore provenance attested in [`release.yml`](.github/workflows/release.yml); the bundle is attached to every release | `gh attestation verify oci://ghcr.io/askalf/browser-bridge:v0.5.1 --owner askalf` |
+| The image builds from the committed lockfile on a pinned base | `npm ci --omit=dev`; `FROM node:26-slim@sha256:…`; Dependabot refreshes the digest | Read the first 30 lines of the [`Dockerfile`](Dockerfile) |
+| Stealth does not regress silently | [`stealth.yml`](.github/workflows/stealth.yml) fails below the floor and publishes the score to the `badges` branch | Run it yourself: `node stealth-score.mjs --cdp http://localhost:9222` from a clone after `npm ci` |
+| The container boots, not just builds | Boot smoke in [`build.yml`](.github/workflows/build.yml) waits for `stealth Chromium running` | [build runs](https://github.com/askalf/browser-bridge/actions/workflows/build.yml) |
+
+Four honest caveats. **`--no-sandbox` is on**: Chromium's setuid sandbox cannot run in an unprivileged container, so the sandbox is the container's user namespace plus the non-root user, not Chromium's own. **CDP is open by default**: without `BRIDGE_TOKEN`, anyone who can reach the port owns the browser; bind it to a private network, and never to the public internet, token or not. **The relay is an open proxy on loopback**: fine when the container is the trust boundary, which is the normal case, and wrong under host networking on a shared machine. **`--disable-component-update` also stops CRLSet**: a container left running for a very long time stops receiving certificate-revocation data; restart it periodically if that matters to you.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    C["CDP client<br/>Playwright · Puppeteer · raw WS"] -->|":9222"| P["cdp-proxy.mjs<br/>token · Host gate · origin lock"]
+    M["MCP client"] -->|":9225 /mcp"| S["mcp-server.mjs<br/>6 tools, CDP client of the bridge"]
+    S --> P
+    P -->|"shared"| B["Chromium<br/>127.0.0.1 · non-root · stealth"]
+    P -->|"isolated ?session="| K["session-broker.mjs<br/>one Chromium per connection, cap + idle reap"]
+    K --> B2["Chromium ×N"]
+    B --> R["proxy-auth-relay.mjs<br/>127.0.0.1, only with user:pass"]
+    R -->|"Proxy-Authorization"| U["upstream proxy / VPN"]
+    U --> W["the web"]
+    B -.->|"/healthz /metrics"| H[":9224 container-internal"]
+```
+
+- **Launcher** ([`launch.mjs`](launch.mjs)) starts Chromium through puppeteer-extra with the full stealth evasion set and a realistic argument set: 1920×1080 window, `en-US,en`, WebGL and accelerated canvas on, font hinting set, `--enable-automation` gone. The user-agent pool is derived at startup from `chromium --version` ([`ua.mjs`](ua.mjs)) so a UA can never claim a version the engine is not.
+- **Proxy** ([`cdp-proxy.mjs`](cdp-proxy.mjs)) fronts Chromium's loopback debugger on `0.0.0.0:9222`. It is a byte pipe with three checks at the door: token, `Host`, and the WebSocket URL. Chromium rejects DNS names in `Host`, which is why remote CDP usually means digging up a container IP; the proxy presents loopback upstream so `connectOverCDP('http://browser:9222')` works by service name once auth is on.
+- **Broker** ([`session-broker.mjs`](session-broker.mjs)) is opt-in. In `isolated` mode each connection gets its own Chromium process, with a concurrency cap and an idle reaper; named sessions survive reconnects.
+- **Reaper** closes idle blank tabs, pages idle past a TTL, and pages beyond a hard count, measured from last navigation so an actively reused page is never touched.
+- **Health** ([`/healthz`](#health-and-metrics)) returns `503` only when the CDP connection is gone. A wedged-but-connected browser reports `"pageCheck":"degraded"`; a proxy in fallback reports `"egress":"direct"`, still `200`, so an autoheal never turns a degraded egress into a restart loop.
+
+## Connect
+
+### Playwright
+
+```ts
+import { chromium } from 'playwright';
+
+const browser = await chromium.connectOverCDP('http://localhost:9222');
+const ctx = browser.contexts()[0] ?? await browser.newContext();
+const page = await ctx.newPage();
+await page.goto('https://example.com');
+console.log(await page.title());
+```
+
+### Puppeteer
+
+```ts
+import puppeteer from 'puppeteer-core';
+
+const browser = await puppeteer.connect({ browserWSEndpoint: 'ws://localhost:9222' });
+```
+
+### With a token
+
+```ts
+// The bridge resolves the root path to the browser target server-side,
+// so there is no /devtools/browser/<uuid> discovery round-trip.
+const browser = await chromium.connectOverCDP('ws://browser:9222/?token=' + process.env.BRIDGE_TOKEN);
+```
 
 ```bash
-docker run --rm -p 9222:9222 --shm-size=512m ghcr.io/askalf/browser-bridge:latest
+curl -s "http://localhost:9222/json/version?token=$BRIDGE_TOKEN"
+curl -s -H "X-Bridge-Token: $BRIDGE_TOKEN" http://localhost:9222/json/list
 ```
 
-`--shm-size` matters: Chromium's default `/dev/shm` (64MB) is too small for non-trivial pages and you'll see crashes without it.
+The token travels as `Authorization: Bearer`, `X-Bridge-Token`, or `?token=`. With a token set you can also connect by DNS or service name; without one, set `BRIDGE_ALLOW_HOSTNAMES=1` to accept hostname `Host` headers on an open bridge and accept the DNS-rebinding trade-off that comes with it.
 
-### docker-compose
+### Raw CDP
 
-```yaml
-services:
-  browser:
-    image: ghcr.io/askalf/browser-bridge:latest
-    expose:
-      - "9222"
-    shm_size: '512m'
-    restart: unless-stopped
+```bash
+curl -s http://localhost:9222/json/version | jq -r .webSocketDebuggerUrl
+# ws://localhost:9222/devtools/browser/4b3f...
 ```
 
-### With a VPN sidecar (Gluetun)
+```jsonc
+{ "id": 1, "method": "Page.navigate", "params": { "url": "https://example.com" } }
+```
+
+See the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) reference for the method surface.
+
+### From other Own Your Stack tools
+
+[hands](https://github.com/askalf/hands) fetches pages over plain HTTP; point its `read_page` at `BROWSER_BRIDGE_URL` and it gets a real Chromium for JS-heavy pages and servers that bounce non-browser user agents. [deepdive](https://github.com/askalf/deepdive) launches a local Playwright Chromium by default; swap `chromium.launch()` for `chromium.connectOverCDP(process.env.BROWSER_BRIDGE_URL)` and many runs share one bridge. The bridge already ships the stealth arguments deepdive lists locally, so drop them when connected. Most MCP browser servers accept a `browserURL`; point it at the bridge.
+
+## Egress through a proxy
+
+### VPN sidecar
 
 ```yaml
 services:
@@ -82,10 +185,7 @@ services:
       HTTP_PROXY: http://localhost:8888
 ```
 
-### With an authenticated proxy
-
-Commercial residential / rotating proxies want a username and password. Put them
-in the URL:
+### Authenticated proxy
 
 ```yaml
 services:
@@ -96,197 +196,29 @@ services:
       HTTPS_PROXY: http://${PROXY_USER}:${PROXY_PASS}@proxy.example.net:8080
 ```
 
-Chromium itself has no way to accept those credentials — it strips them out of
-`--proxy-server` and expects a human to answer the `407`. So when credentials
-are present, browser-bridge starts a small relay on loopback, points Chromium at
-that, and adds the `Proxy-Authorization` header to everything going upstream.
-The browser never sees the password, and neither do the logs: the startup line
-prints `http://user:***@host:port`.
-
-Two things to know:
-
-- The relay is an **open proxy on `127.0.0.1` inside the container**. That's
-  fine when the container is the trust boundary, which is the normal case — but
-  don't run it with host networking on a shared host and assume otherwise.
-- `https://` proxy URLs (TLS to the proxy itself) aren't supported with
-  credentials; use an `http://` proxy endpoint. It fails at startup rather than
-  at your first navigation.
+Chromium strips credentials out of `--proxy-server` and waits for a human to answer the `407`. When credentials are present, browser-bridge starts a small relay on an ephemeral loopback port, points Chromium at it, and adds `Proxy-Authorization` to every forwarded request and every `CONNECT`. A non-200 from upstream is relayed verbatim, so a wrong password surfaces as the proxy's own `407`. Per-hop headers are stripped in both directions. Credentials are percent-decoded, so a password containing `@` or `:` survives. Authenticated `https://` proxy URLs (TLS to the proxy itself) are rejected at startup rather than at first navigation.
 
 ### When the proxy goes away
-
-By default, an upstream proxy is a hard dependency: if it stops answering, every
-navigation fails. Set `PROXY_FALLBACK=direct` and the relay instead retries the
-request straight out of the container.
 
 ```yaml
     environment:
       HTTPS_PROXY: http://${PROXY_USER}:${PROXY_PASS}@proxy.example.net:8080
       PROXY_FALLBACK: direct           # keep browsing if the proxy dies
-      PROXY_CONNECT_TIMEOUT_MS: '8000' # how long to wait before calling it dead
+      PROXY_CONNECT_TIMEOUT_MS: '8000' # how long before a silent tunnel counts as dead
 ```
 
-**Decide this per deployment — the default is off on purpose.** Going direct
-means the same browser, carrying the same logged-in cookies, suddenly appears
-from a different address and a different ASN. If you're using a proxy for its
-*exit address*, a silent switch mid-session is worse than an outage: it's the
-shape of thing that trips an account security challenge. If you're using one
-because it's the only route out, failing over is obviously right.
+**Decide this per deployment.** Going direct means the same browser, carrying the same logged-in cookies, suddenly appears from a different address and ASN, which is the shape of event that trips an account security challenge. If the proxy is there for its exit address, an outage is better than a silent relocation. If it is the only route out, failing over is obviously right.
 
-What it will and won't fail over on:
+- **Only unreachability counts.** Connection refused, host or network unreachable, DNS failure, reset before the tunnel is up, connect timeout.
+- **Never an answer.** A `407`, a refused `CONNECT`, any status the proxy sends is the proxy working and saying no.
+- **The timeout is what fires in real life.** A tunnel whose far end has vanished swallows packets rather than refusing them; `PROXY_CONNECT_TIMEOUT_MS` is armed only until the TCP connect lands, so it can never truncate a long-lived tunnel.
+- **One failure trips the breaker.** Subsequent requests go direct immediately; the relay re-probes upstream after 30 s and returns to it as soon as it answers.
 
-- **Only unreachability counts.** Connection refused, host/network unreachable,
-  DNS failure, connect timeout, a reset before the tunnel is up.
-- **Never an answer.** A `407`, a refused `CONNECT`, any status the proxy
-  actually sends is the proxy working and saying no. Failing over on those would
-  turn a wrong password into a silent egress change you'd never notice.
-- **Timeout, not just errors.** A tunnel whose far end has vanished usually
-  swallows packets rather than refusing them, so `PROXY_CONNECT_TIMEOUT_MS`
-  (default `8000`) is what actually fires in the most likely failure. Without
-  it, navigations would just hang.
-- **One failure trips the breaker**, not three — each retry costs a stalled
-  page load. Subsequent requests go direct immediately and the relay re-probes
-  the upstream after 30s, returning to it as soon as it answers.
-
-Degradation is visible but never fatal: `/healthz` reports `"egress": "direct"`
-and `"degraded": true` while still returning `200`, and `/metrics` counts
-`proxyFallbacks`. The status code is deliberately not gated on it — a `503` here
-would hand a working-but-degraded browser to your autoheal or health-gated
-deploy and turn it into a restart loop.
-
-### Connect from Playwright
-
-```ts
-import { chromium } from 'playwright';
-
-const browser = await chromium.connectOverCDP('http://localhost:9222');
-const ctx = browser.contexts()[0] ?? await browser.newContext();
-const page = await ctx.newPage();
-await page.goto('https://example.com');
-console.log(await page.title());
-```
-
-### Connect from Puppeteer
-
-```ts
-import puppeteer from 'puppeteer-core';
-
-const browser = await puppeteer.connect({
-  browserWSEndpoint: 'ws://localhost:9222',
-});
-```
-
-### Connect from hands
-
-[hands](https://github.com/askalf/hands) is a computer-use agent that mostly drives the local desktop directly, but its `read_page` tool fetches URLs over plain HTTP. Pointing it at a browser-bridge gives it a real Chromium for the cases where a server bounces non-browser User-Agents or where the page is a JS-heavy SPA:
-
-```ts
-// hands/src/tools/read-page.ts — variant using browser-bridge instead of fetch()
-import { chromium } from 'playwright';
-
-const browser = await chromium.connectOverCDP(
-  process.env.BROWSER_BRIDGE_URL ?? 'http://localhost:9222',
-);
-const ctx = browser.contexts()[0] ?? await browser.newContext();
-const page = await ctx.newPage();
-try {
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15_000 });
-  const html = await page.content();
-  return { text: cleanHtml(html), meta: { url, finalUrl: page.url(), status: 200 } };
-} finally {
-  await page.close();
-}
-```
-
-Set `BROWSER_BRIDGE_URL` in the hands environment to the bridge container's address (e.g. `http://browser-bridge:9222` on a shared docker network).
-
-### Connect from deepdive
-
-[deepdive](https://github.com/askalf/deepdive) is a research agent whose `BrowserSession` (`src/browser.ts`) launches a local Playwright Chromium by default. Swap `chromium.launch()` for `chromium.connectOverCDP()` to share one browser-bridge across many deepdive runs:
-
-```ts
-// deepdive/src/browser.ts — BrowserSession.start() using browser-bridge
-import { chromium } from 'playwright';
-
-async start(): Promise<void> {
-  const bridgeUrl = process.env.BROWSER_BRIDGE_URL;
-  if (bridgeUrl) {
-    this.browser = await chromium.connectOverCDP(bridgeUrl);
-    this.context = this.browser.contexts()[0] ?? await this.browser.newContext({
-      userAgent: this.opts.userAgent ?? DEFAULT_USER_AGENT,
-      viewport: { width: 1920, height: 1080 },
-      locale: 'en-US',
-    });
-    return;
-  }
-  // ...fallback to local chromium.launch() as today
-}
-```
-
-The browser-bridge container already ships the stealth args deepdive's `STEALTH_ARGS` lists (`--disable-blink-features=AutomationControlled`, the realistic viewport, locale, font-render hinting), so when connected over CDP you can drop deepdive's local args.
-
-### Raw CDP
-
-If you don't want a Playwright/Puppeteer dependency at all, browser-bridge speaks the wire protocol directly. Fetch the WebSocket URL from `/json/version`, open a socket, and send framed JSON-RPC:
-
-```bash
-# 1. Discover the WebSocket debugger URL
-curl -s http://localhost:9222/json/version | jq -r .webSocketDebuggerUrl
-# ws://localhost:9222/devtools/browser/4b3f...
-```
-
-```jsonc
-// 2. Send a CDP command over that socket — minimal Page.navigate
-{ "id": 1, "method": "Page.navigate", "params": { "url": "https://example.com" } }
-
-// Response
-{ "id": 1, "result": { "frameId": "ABCD...", "loaderId": "1234..." } }
-```
-
-See the [Chrome DevTools Protocol docs](https://chromedevtools.github.io/devtools-protocol/) for the full method surface (`Page.*`, `Network.*`, `Runtime.evaluate`, `DOM.*`, etc.).
-
-### Connect from an MCP browser tool
-
-The CDP endpoint `http://localhost:9222/json/version` and `ws://localhost:9222/devtools/...` are standard. Most MCP browser servers accept a `browserURL` config option — point it at this container.
-
-## Authentication
-
-CDP has no auth story of its own — anyone who can open a socket to `:9222` owns the browser. By default the bridge keeps the classic open behavior (bind it to a private network). Set `BRIDGE_TOKEN` to require a shared secret on every request and WebSocket upgrade instead:
-
-```yaml
-services:
-  browser:
-    image: ghcr.io/askalf/browser-bridge:latest
-    expose: ["9222"]
-    shm_size: '512m'
-    environment:
-      BRIDGE_TOKEN: ${BRIDGE_TOKEN}
-```
-
-The token can travel three ways — `Authorization: Bearer <token>`, an `X-Bridge-Token` header, or a `?token=` query parameter. Comparison is timing-safe, the token is stripped before anything reaches Chromium, and failures are counted in `/metrics` (`authFailures`).
-
-```ts
-// Playwright — ws endpoint with the token in the query string.
-// The bridge resolves the root path to the browser target server-side,
-// so you don't need the /devtools/browser/<uuid> discovery round-trip.
-const browser = await chromium.connectOverCDP('ws://browser:9222/?token=' + process.env.BRIDGE_TOKEN);
-
-// Puppeteer — same one-liner
-const browser = await puppeteer.connect({
-  browserWSEndpoint: `ws://browser:9222/?token=${process.env.BRIDGE_TOKEN}`,
-});
-```
-
-```bash
-# curl / raw CDP
-curl -s "http://localhost:9222/json/version?token=$BRIDGE_TOKEN"
-curl -s -H "X-Bridge-Token: $BRIDGE_TOKEN" http://localhost:9222/json/list
-```
-
-With a token set you can also connect by DNS/service name (`ws://browser:9222/...` above): Chromium's own Host-header check — which rejects DNS names and doubles as DNS-rebinding protection — is handled by the proxy, and auth covers the rebinding risk. Without a token the bridge keeps Chromium's IP/localhost-only Host behavior; set `BRIDGE_ALLOW_HOSTNAMES=1` if you want service-name connections on an open bridge and accept that trade-off.
+Degradation is reported, never gated on: `/healthz` shows `"egress":"direct"` and `"degraded":true` at `200`, and `/metrics` counts `proxyFallbacks`.
 
 ## Session isolation
 
-By default the bridge fronts **one** Chromium and every client connects to the same browser: convenient and cheap, but a client that calls `browser.close()` takes the browser down for everyone, and any connection can enumerate or close pages it didn't open. When several independent clients share a bridge, set `BRIDGE_SESSION_MODE=isolated` and each connection gets its **own** stealth Chromium:
+By default every client connects to **one** Chromium: cheap, and a client that calls `browser.close()` takes the browser down for everyone. When independent clients share a bridge, set `BRIDGE_SESSION_MODE=isolated` and each connection gets its own stealth Chromium process:
 
 ```yaml
 services:
@@ -294,42 +226,33 @@ services:
     image: ghcr.io/askalf/browser-bridge:latest
     environment:
       BRIDGE_SESSION_MODE: isolated
-      BRIDGE_MAX_SESSIONS: "20"   # concurrent-session cap
+      BRIDGE_MAX_SESSIONS: "20"
     expose: ["9222"]
     shm_size: '512m'
 ```
 
-- **Hard isolation** — no client sees or closes another's targets; `browser.close()` only kills that client's session.
-- **Stealth preserved** — every session launches through the same puppeteer-extra stealth config, so evasions apply exactly as in shared mode.
-- **Still a byte-pipe** — the proxy routes each connection to its session's browser; there is no per-message CDP parsing on the hot path.
-
-Choosing a session:
-
 ```ts
-// Ephemeral — a fresh browser for this connection, disposed on disconnect:
+// Ephemeral: a fresh browser for this connection, disposed on disconnect.
 await chromium.connectOverCDP('http://browser:9222');
 
-// Named — reused across reconnects (survives a disconnect until it goes idle),
-// for a long-lived logged-in session:
+// Named: reused across reconnects until it goes idle, for a long-lived logged-in session.
 await puppeteer.connect({ browserWSEndpoint: 'ws://browser:9222/?session=my-login' });
 ```
 
-Named sessions are reaped after `BRIDGE_SESSION_IDLE_MS` (default 5m) with no connections. Acquisitions past `BRIDGE_MAX_SESSIONS` get a `503` — a launch-per-connection endpoint is otherwise an easy resource-exhaustion vector. `isolated` is opt-in; the default stays `shared`.
+No client sees or closes another's targets. Every session launches through the same stealth configuration. The proxy still routes bytes; there is no per-message parsing. Named sessions are reaped after `BRIDGE_SESSION_IDLE_MS` (default 5 min) without a connection. Each session is a Chromium process, so size `BRIDGE_MAX_SESSIONS` to your RAM.
 
 ## MCP endpoint
 
-Ships an optional MCP server (`mcp-server.mjs`) so any MCP client — Claude Code, an agent framework, anything that speaks MCP — can drive the bridge with **no puppeteer or CDP code of its own**. It's a thin MCP server that is itself a CDP client of the bridge, exposing six tools over Streamable HTTP:
+[`mcp-server.mjs`](mcp-server.mjs) is a thin MCP server that is itself a CDP client of the bridge, so any MCP client can drive a browser with no Puppeteer or CDP code of its own. Six tools over Streamable HTTP:
 
 | Tool | Does |
 |---|---|
-| `browser_navigate` | Go to a URL, wait for load, report status + title. |
-| `browser_screenshot` | PNG of the viewport (or `fullPage`). |
-| `browser_evaluate` | Run a JS expression in the page, return the result. |
-| `browser_get_content` | Page as `html` or visible `text`. |
-| `browser_get_console` | Console + page-error messages captured this session. |
-| `browser_pdf` | Render the page to a PDF resource. |
-
-Run it as a second process alongside the bridge (same image), pointed at the bridge's CDP endpoint:
+| `browser_navigate` | Go to a URL, wait for load, report status and title |
+| `browser_screenshot` | PNG of the viewport, or `fullPage` |
+| `browser_evaluate` | Run a JS expression in the page and return the result |
+| `browser_get_content` | The page as `html` or visible `text` |
+| `browser_get_console` | Console and page-error messages captured this session |
+| `browser_pdf` | Render the page to a PDF resource |
 
 ```yaml
 services:
@@ -342,85 +265,78 @@ services:
     command: ["node", "/app/mcp-server.mjs"]
     environment:
       BRIDGE_CDP_URL: http://browser:9222
-      # BRIDGE_TOKEN: ${BRIDGE_TOKEN}   # required on MCP requests + presented to the bridge
+      # BRIDGE_TOKEN: ${BRIDGE_TOKEN}   # required on MCP requests, presented onward to the bridge
     ports: ["9225:9225"]
 ```
 
-Then point a client at `http://<host>:9225/mcp`. **Each MCP session opens one bridge connection** (`?session=mcp-<id>`), so with the bridge in isolated session mode every MCP session gets its own stealth browser; in shared mode they share one. The browser is opened lazily on the first tool call and disposed when the MCP session ends. If `BRIDGE_TOKEN` is set it's required on MCP requests (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`) and presented onward to the bridge.
+Point a client at `http://<host>:9225/mcp`. Each MCP session opens one bridge connection as `?session=mcp-<id>`, so with the bridge in isolated mode every MCP session has its own browser. The browser opens lazily on the first tool call and is disposed when the MCP session ends.
 
 ## Configuration
 
 | Env var | Default | Effect |
 |---|---|---|
-| `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Which Chromium binary to launch (rarely needs overriding). |
-| `HTTPS_PROXY` | unset | Outbound proxy passed to Chromium as `--proxy-server`. Accepts `http://user:pass@host:port` — see [With an authenticated proxy](#with-an-authenticated-proxy). |
-| `HTTP_PROXY` | unset | Same as `HTTPS_PROXY`; either works (`HTTPS_PROXY` wins if both are set). |
-| `PROXY_FALLBACK` | `off` | `direct` = when the upstream proxy is unreachable, send the request straight out instead of failing. Only applies to a credentialed proxy URL (it needs the relay). Never triggers on a `407` or any other answer the proxy sends. See [When the proxy goes away](#when-the-proxy-goes-away). |
-| `PROXY_CONNECT_TIMEOUT_MS` | `8000` | How long to wait for the upstream proxy's TCP connect before treating it as dead. Only used when `PROXY_FALLBACK=direct`; it's what catches a black-holed tunnel, which never errors. |
-| `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated Origin header values allowed on CDP websocket connections (`--remote-allow-origins`). Most CDP clients send no Origin header and don't need this. |
-| `BRIDGE_TOKEN` | unset | Shared secret required on every CDP request/WebSocket when set (`Authorization: Bearer`, `X-Bridge-Token`, or `?token=`). Unset = open, pre-0.2.0 behavior. |
-| `BRIDGE_ALLOW_HOSTNAMES` | unset | Accept DNS-name Host headers (compose service names) *without* a token. Not needed when `BRIDGE_TOKEN` is set. Opt-in because Chromium's Host check doubles as DNS-rebinding protection. |
-| `BRIDGE_SESSION_MODE` | `shared` | `shared` = one browser for all clients (default). `isolated` = a browser per connection (see [Session isolation](#session-isolation)). |
-| `BRIDGE_MAX_SESSIONS` | `20` | *(isolated)* Concurrent-session cap; acquisitions past it return `503`. |
-| `BRIDGE_SESSION_IDLE_MS` | `300000` | *(isolated)* Reap a session this long (5m) after its last connection closes. |
-| `BRIDGE_USER_DATA_DIR` | `/home/browser/data` | *(shared)* Chromium profile directory. The image creates and chowns the default for the `browser` user; mount a volume there to persist cookies/storage across restarts — stale Chromium singleton locks left by a killed container are cleared at startup, so a mounted profile survives recreates. `isolated` mode always uses a fresh per-session directory and ignores this. |
-| `BRIDGE_HEALTH_PORT` | `9224` | Health/metrics port (binds `127.0.0.1` inside the container). |
-| `BRIDGE_REAP_INTERVAL_MS` | `30000` | How often the page/session reaper runs. |
+| `BRIDGE_TOKEN` | unset | Shared secret required on every CDP request and WebSocket when set. Unset = open. |
+| `BRIDGE_ALLOW_HOSTNAMES` | unset | Accept DNS-name `Host` headers **without** a token. Not needed with `BRIDGE_TOKEN`. Opt-in because Chromium's `Host` check doubles as DNS-rebinding protection. |
+| `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated `Origin` values allowed on CDP WebSockets (`--remote-allow-origins`). Playwright and Puppeteer send no `Origin` and need nothing here. |
+| `HTTPS_PROXY` / `HTTP_PROXY` | unset | Outbound proxy for Chromium. Accepts `http://user:pass@host:port`. `HTTPS_PROXY` wins if both are set. |
+| `PROXY_FALLBACK` | `off` | `direct` = retry an unreachable upstream straight out of the container. Only applies to a credentialed proxy URL. Never on a `407`. |
+| `PROXY_CONNECT_TIMEOUT_MS` | `8000` | TCP connect timeout to the upstream proxy. Only used with `PROXY_FALLBACK=direct`. |
+| `BRIDGE_SESSION_MODE` | `shared` | `shared` = one browser for all clients. `isolated` = a browser per connection. |
+| `BRIDGE_MAX_SESSIONS` | `20` | *(isolated)* Concurrent-session cap; past it, `503`. |
+| `BRIDGE_SESSION_IDLE_MS` | `300000` | *(isolated)* Reap a session this long after its last connection closes. |
+| `BRIDGE_USER_DATA_DIR` | `/home/browser/data` | *(shared)* Chromium profile directory. Mount a volume there to persist cookies and storage; stale singleton locks from a killed container are cleared at startup. Isolated mode ignores this. |
+| `BRIDGE_HEALTH_PORT` | `9224` | Health and metrics port, bound to `127.0.0.1` inside the container. |
+| `BRIDGE_REAP_INTERVAL_MS` | `30000` | How often the page and session reaper runs. |
 | `BRIDGE_BLANK_TTL_MS` | `120000` | *(shared)* Reap `about:blank` tabs idle this long. |
-| `BRIDGE_MAX_IDLE_MS` | `900000` | *(shared)* Reap any page with no navigation for this long (15m). Raise it if your clients hold pages open while working. |
+| `BRIDGE_MAX_IDLE_MS` | `900000` | *(shared)* Reap any page with no navigation for this long. Raise it if clients hold pages open while working. |
 | `BRIDGE_MAX_PAGES` | `25` | *(shared)* Hard page-count cap; the most-idle pages beyond it are reaped. |
 | `BRIDGE_MCP_PORT` | `9225` | *(mcp-server.mjs)* Port the MCP endpoint listens on. |
 | `BRIDGE_MCP_PATH` | `/mcp` | *(mcp-server.mjs)* Request path for the MCP endpoint. |
-| `BRIDGE_CDP_URL` | `http://127.0.0.1:9222` | *(mcp-server.mjs)* The bridge CDP endpoint the MCP server connects to. |
+| `BRIDGE_CDP_URL` | `http://127.0.0.1:9222` | *(mcp-server.mjs)* The bridge the MCP server connects to. |
+| `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Chromium binary. Rarely overridden. |
 
-Ports:
+Ports: **9222** CDP (the image `EXPOSE`s it). **9224** health and metrics, container-internal. **9225** the optional MCP endpoint, only when `mcp-server.mjs` runs.
 
-- **9222** (TCP) — CDP entry point. The image's `EXPOSE` targets this.
-- **9224** (TCP, container-internal) — `/healthz` + `/metrics`, bound to `127.0.0.1` inside the container. The Docker `HEALTHCHECK` hits it; it is intentionally not reachable from outside the container.
-- **9225** (TCP) — the optional [MCP endpoint](#mcp-endpoint), only when you run `mcp-server.mjs`.
+`--shm-size=512m` is not optional: Chromium's default 64 MB `/dev/shm` is too small for non-trivial pages and the symptom is a crashed tab with no useful error.
 
-## Health & metrics
+## Health and metrics
 
 ```bash
-docker exec <container> curl -s http://127.0.0.1:9224/healthz
+docker exec <c> curl -s http://127.0.0.1:9224/healthz
 # {"ok":true,"connected":true,"pageCheck":"ok","pagesOpen":2}
 
-docker exec <container> curl -s http://127.0.0.1:9224/metrics
+docker exec <c> curl -s http://127.0.0.1:9224/metrics
 # {"uptimeSec":4211,"pagesOpen":2,"pagesCreated":17,"pagesReaped":3,
 #  "navCount":42,"healthChecks":280,"lastReapAt":1765500000000,
 #  "authFailures":0,"hostBlocked":0,"cdpConnectionsTotal":5,
 #  "cdpConnectionsActive":1,"connected":true}
 ```
 
-`/healthz` returns `503` only when the CDP connection is gone (restart the container). A wedged-but-connected Chrome shows up as `"pageCheck":"degraded"` — the deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute.
+`/healthz` returns `503` only when the CDP connection is gone. The deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute. One heartbeat log line per minute carries the same counters; pair with `restart: unless-stopped` for self-recovery.
 
-## Image tags
+## Releases and supply chain
 
-- `ghcr.io/askalf/browser-bridge:latest` — bleeding edge from `master`.
-- `ghcr.io/askalf/browser-bridge:v<X.Y.Z>` — pinned releases.
-- `ghcr.io/askalf/browser-bridge:vX.Y` and `ghcr.io/askalf/browser-bridge:vX` — minor/major aliases pointing at the latest matching release.
-
-## Security model
-
-- Runs as non-root (`browser:browser`).
-- `--no-sandbox` is set inside the container because Chromium's setuid sandbox doesn't work in unprivileged containers; the broader sandbox is the Linux user namespace the container provides.
-- CDP is unauthenticated **by default** — anyone who can reach `:9222` can drive the browser. **Bind to a private network** (docker-compose service network, internal VPN, etc.), and set `BRIDGE_TOKEN` for defense in depth. Even with a token, don't expose `:9222` to the public internet — CDP was never designed to be an internet-facing protocol.
-- Without a token, DNS-name Host headers are refused (Chromium's own anti-DNS-rebinding posture, preserved by the proxy); IP and localhost Hosts work as always.
-- Every Chromium command is exposed via CDP. Treat the CDP endpoint with the same care you'd treat raw shell on the container.
+- **Tags.** `:latest` tracks `master`. `:vX.Y.Z` is a release; `:vX.Y` and `:vX` follow the latest matching release. Multi-arch: `linux/amd64` and `linux/arm64`.
+- **Provenance.** Every release is attested with keyless Sigstore ([`actions/attest-build-provenance`](https://github.com/actions/attest-build-provenance)), and the bundle is attached to the GitHub release. Verify before you trust: `gh attestation verify oci://ghcr.io/askalf/browser-bridge:v0.5.1 --owner askalf`. An SBOM and BuildKit provenance are pushed with the image.
+- **Pins.** Base image digest-pinned; `npm ci` from the committed lockfile; every GitHub Action SHA-pinned; workflow tokens read-only by default. Dependabot refreshes all of it.
+- **Analysis.** CodeQL on every push and PR. ClusterFuzzLite weekly, `npm run fuzz` locally. OpenSSF Scorecard weekly.
+- **Changes.** [`CHANGELOG.md`](CHANGELOG.md) records the why as well as the what, including the bugs each release found in itself.
+- **Disclosure.** See [`SECURITY.md`](SECURITY.md). Please do not open a public issue for a vulnerability.
 
 ## What it isn't
 
-- **Not a queue or scheduler.** It's just one browser. Run multiple containers + a queue (BullMQ or similar) for parallelism.
-- **Not session-pinned.** All clients share the same Chromium instance. For session isolation, use Playwright/Puppeteer browser contexts.
-- **Not a Chrome extension host.** Headless Chromium doesn't load extensions reliably.
+- **Not a queue.** One container is one browser (or, in isolated mode, one browser per connection up to the cap). For throughput, run several containers behind a queue.
+- **Not internet-facing.** CDP was never designed for that, and a token does not change it. Private network, always.
+- **Not a Chrome extension host.** Headless Chromium does not load extensions reliably.
+- **Not egress governance.** It gives you a browser and tells you honestly what that browser can do. Policy over what an agent may fetch is [fieldpass](https://github.com/askalf/fieldpass).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 ## Own Your Stack
 
-Part of **[Own Your Stack](https://github.com/askalf)** — open tools for owning your AI infrastructure instead of renting it by the token. One subscription. Your box. Your terms.
+Part of **[Own Your Stack](https://github.com/askalf)**: open tools for owning your AI infrastructure instead of renting it by the token. One subscription. Your box. Your terms.
 
 - **[dario](https://github.com/askalf/dario)** — own your routing
 - **[hybrid](https://github.com/askalf/hybrid)** — own your inference
@@ -436,4 +352,4 @@ Part of **[Own Your Stack](https://github.com/askalf)** — open tools for ownin
 - **[askalf](https://askalf.org)** — own your operation: the AI operation that runs Sprayberry Labs
 
 ---
-Part of **[Own Your Stack](https://github.com/askalf)** — own your AI infrastructure instead of renting it. Built by Thomas Sprayberry.
+Built by Thomas Sprayberry.
