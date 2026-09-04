@@ -2,13 +2,6 @@ name: Bug report
 description: browser-bridge did something other than what it says it does.
 labels: ['bug']
 body:
-  - type: markdown
-    attributes:
-      value: |
-        For a **missed injection** or a **wrong flag**, please use the
-        false-positive template or the security advisory link instead — those
-        need different information than a crash does.
-
   - type: textarea
     id: what
     attributes:
