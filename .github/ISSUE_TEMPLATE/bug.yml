@@ -1,0 +1,52 @@
+name: Bug report
+description: browser-bridge did something other than what it says it does.
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a **missed injection** or a **wrong flag**, please use the
+        false-positive template or the security advisory link instead — those
+        need different information than a crash does.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, and what it did.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest thing that shows it. A saved page, a URL, or a local HTML fixture is ideal — attach it if you can share it.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: browser-bridge version
+      placeholder: 'x.y.z'
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: OS and Node version
+      placeholder: 'macOS 15.2, node 22.11.0'
+    validations:
+      required: true

@@ -1,0 +1,30 @@
+name: Feature request
+description: Something browser-bridge should do that it does not.
+labels: ['enhancement']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do, and where does browser-bridge stop you? Describe
+        the situation rather than the feature — the best proposals here have
+        come from a concrete agent-browsing problem someone actually hit.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. A rough shape is fine; so is "no idea, but here is the problem".
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead
+      description: The workaround, if there is one.
+    validations:
+      required: false
