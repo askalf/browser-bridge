@@ -9,7 +9,7 @@
 // assertions below fail loudly if that shape ever changes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -63,13 +63,53 @@ test('every glob matches at least one tracked file', () => {
   assert.deepEqual(dead, [], `these labeler globs match nothing (moved or renamed?): ${dead.join(', ')}`);
 });
 
-test('labels named in the config exist in the repo label set', () => {
-  // Names only — a label the repo does not define gets created implicitly with
-  // a default colour and no description, which is how label sets turn to mush.
+// .github/labels.json is the repository's declared label set. A label that is
+// applied but not declared gets created implicitly, with a default colour and
+// no description, which is how label sets turn to mush. This file checks
+// declared-vs-applied OFFLINE; CI's `labels` job checks declared-vs-live with
+// `gh label list`, so the manifest cannot rot either. Between the two, "every
+// applied label exists in the repo" is actually proven rather than asserted.
+const manifest = JSON.parse(readFileSync(path.join(root, '.github', 'labels.json'), 'utf8'));
+const declared = new Set(manifest.map((l) => l.name));
+
+test('the label manifest is well-formed', () => {
+  assert.ok(manifest.length >= 10, `only ${manifest.length} labels declared — did the file shape change?`);
+  const names = manifest.map((l) => l.name);
+  assert.equal(new Set(names).size, names.length, 'duplicate label names in the manifest');
+  // GitHub label names are unique case-insensitively: `Bug` cannot coexist with
+  // `bug`. Fold before checking so the manifest cannot declare a pair GitHub
+  // would refuse.
+  const folded = names.map((n) => n.toLowerCase());
+  assert.equal(new Set(folded).size, folded.length, 'labels that differ only by case');
+  for (const l of manifest) {
+    assert.match(l.color, /^[0-9a-f]{6}$/i, `label "${l.name}": colour "${l.color}" is not six hex digits`);
+  }
+});
+
+test('every label the labeler config applies is declared', () => {
   const labels = [...config.matchAll(/^'?([a-z][a-z0-9 :_-]*)'?:$/gim)].map((m) => m[1].trim());
   assert.ok(labels.includes('tests'), 'expected a tests label rule');
   assert.ok(labels.length >= 5, `only ${labels.length} label rules — did the file shape change?`);
-  for (const l of labels) {
-    assert.ok(l === l.toLowerCase(), `label "${l}" is not lowercase — GitHub labels are case-sensitive`);
+  const missing = labels.filter((l) => !declared.has(l));
+  assert.deepEqual(missing, [],
+    `labeler.yml applies labels the repo does not declare — actions/labeler would create them ad hoc: ${missing.join(', ')}`);
+});
+
+test('every label an issue template applies is declared', () => {
+  const dir = path.join(root, '.github', 'ISSUE_TEMPLATE');
+  const forms = readdirSync(dir).filter((f) => f.endsWith('.yml') && f !== 'config.yml');
+  // Two is the family floor: every repo ships a bug and a feature form. A repo
+  // whose product is a DETECTOR ships a third, the false-positive form — so this
+  // cannot assert three without failing on every repo that has nothing to be
+  // wrong about.
+  assert.ok(forms.length >= 2, `only ${forms.length} issue forms — did the directory shape change?`);
+  for (const f of forms) {
+    const src = readFileSync(path.join(dir, f), 'utf8');
+    const m = /^labels:\s*\[([^\]]*)\]\s*$/m.exec(src);
+    assert.ok(m, `${f}: no top-level labels: [...] line`);
+    const labels = m[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+    assert.ok(labels.length >= 1, `${f}: labels list is empty`);
+    const missing = labels.filter((l) => !declared.has(l));
+    assert.deepEqual(missing, [], `${f} applies undeclared labels: ${missing.join(', ')}`);
   }
 });
