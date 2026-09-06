@@ -1,0 +1,3 @@
+tools: [ 'picket_gate', 'picket_login', 'picket_observe' ]
+observe verdict line: picket verdict: BLOCK · decision: block · 1 item(s) withheld · captured: static · LETHAL TRIFECTA
+PLUMBING_PASS

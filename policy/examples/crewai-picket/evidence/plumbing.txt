@@ -1,0 +1,4 @@
+picket MCP server ready (v0.2.0) · stdio · allowlist=[acme.example] · cdp=none — html-only · judge=off
+tools: ['picket_gate', 'picket_login', 'picket_observe']
+observe verdict line: picket verdict: BLOCK · decision: block · 1 item(s) withheld · captured: static · LETHAL TRIFECTA
+PLUMBING_PASS

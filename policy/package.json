@@ -1,0 +1,81 @@
+{
+  "name": "@askalf/fieldpass",
+  "version": "0.6.0",
+  "description": "Governed agentic browser — an indirect-prompt-injection firewall and action gate that wraps a CDP browser so agents can read untrusted web pages safely. Part of the Own Your Stack agent-security suite (redstamp · strongroom · truecopy · cordon).",
+  "type": "module",
+  "main": "src/index.mjs",
+  "bin": {
+    "fieldpass": "bin/picket.mjs",
+    "fieldpass-mcp": "bin/picket-mcp.mjs",
+    "picket": "bin/picket.mjs",
+    "picket-mcp": "bin/picket-mcp.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "demo": "node demo/run-demo.mjs",
+    "demo:escalation": "node demo/escalation-demo.mjs",
+    "demo:mcp": "node demo/mcp-demo.mjs",
+    "calibrate:judge": "node demo/calibrate-judge.mjs",
+    "capture:live": "node demo/capture-live.mjs",
+    "e2e:live": "node demo/e2e-live.mjs",
+    "demo:broker": "node demo/broker-demo.mjs",
+    "demo:oracle": "node demo/oracle-demo.mjs",
+    "demo:skill": "node demo/skill-demo.mjs",
+    "demo:incidents": "node incidents/run-incidents.mjs",
+    "mcp": "node bin/picket-mcp.mjs",
+    "scan": "node bin/picket.mjs"
+  },
+  "keywords": [
+    "prompt-injection",
+    "agent-security",
+    "browser-automation",
+    "cdp",
+    "puppeteer",
+    "lethal-trifecta",
+    "ai-safety"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "node-html-parser": "^9.0.1",
+    "zod": "^4.4.3"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "puppeteer-core": "^25.3.0"
+  },
+  "license": "MIT",
+  "author": "Sprayberry Labs",
+  "homepage": "https://github.com/askalf/browser-bridge/tree/master/policy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/askalf/browser-bridge.git",
+    "directory": "policy"
+  },
+  "bugs": {
+    "url": "https://github.com/askalf/browser-bridge/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@jazzer.js/core": "4.0.0",
+    "fast-check": "^4.8.0"
+  },
+  "overrides": {
+    "fast-uri": "^3.1.7",
+    "qs": "^6.16.0",
+    "@hono/node-server": "^2.0.5",
+    "hono": "^4.12.34",
+    "brace-expansion": "^1.1.16"
+  }
+}

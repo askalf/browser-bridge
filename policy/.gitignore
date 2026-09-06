@@ -1,0 +1,13 @@
+node_modules/
+demo/report.json
+demo/REPORT.md
+*.log
+.DS_Store
+
+# never commit secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+.npmrc

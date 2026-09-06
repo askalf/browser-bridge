@@ -1,0 +1,4 @@
+# runtime artifacts (evidence/ is checked in on purpose)
+/.venv/
+__pycache__/
+*.pyc

@@ -1,0 +1,21 @@
+picket MCP server ready (v0.2.0) · stdio · allowlist=[acme.example] · cdp=none — html-only · judge=off
+
+==== LangGraph StateGraph behind the picket firewall ====
+governed tools: [ 'picket_gate', 'picket_login', 'picket_observe' ]
+
+PERCEPTION — injection withheld, benign content kept: true
+  verdict line: picket verdict: BLOCK · decision: block · 1 item(s) withheld · captured: static · LETHAL TRIFECTA
+  pay URL extracted from the SAFE view: https://acme.example/pay/7
+INJECTION_WITHHELD_PASS
+
+ACTION — the gate:
+  navigate acme.example/pay (the actual task): ALLOW: ok
+  navigate exfil.evil.example (what the injection wanted): DENY: navigation to exfil.evil.example is off-allowlist
+  type into #password: DENY: credential-shaped field/value — must be injected via login(), never typed by the agent
+  submit "approve the wire transfer": STEP-UP: high-authority action — step-up approval required
+GATE_PASS
+
+IDENTITY — login with no vault configured: refused: MCP tool 'picket_login' on server 'picket' returned an error: keeper: no secret for persona "ap-bot"
+LOGIN_FAILS_CLOSED_PASS
+
+GOVERNED_GRAPH_PASS

@@ -1,0 +1,10 @@
+# Microsoft AutoGen (v0.4+ architecture) + its first-party MCP tool integration.
+#   pip install -r requirements.txt
+# autogen-ext[mcp] pulls AutoGen's McpWorkbench and the `mcp` client library.
+autogen-agentchat==0.7.5
+autogen-ext[mcp]==0.7.5
+
+# autogen-ext[mcp] only asks for mcp>=1.11.0, which leaves the resolver free to
+# settle on a build inside PYSEC-2026-3481 / -3482 / -3483. Pin the floor above
+# all three so this demo installs safely regardless of resolver choice.
+mcp>=1.28.1

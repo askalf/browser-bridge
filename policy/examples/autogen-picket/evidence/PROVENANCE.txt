@@ -1,0 +1,12 @@
+captured: 2026-07-09T23:19:01Z
+platform: win32 x64 · python 3.11.9 · node v22.22.0
+picket: b113e47 (branch feat/framework-examples)
+
+pinned deps:
+autogen-agentchat==0.7.5
+autogen-core==0.7.5
+autogen-ext==0.7.5
+mcp==1.28.1
+pydantic==2.13.4
+pydantic_core==2.46.4
+pydantic-settings==2.14.2

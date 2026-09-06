@@ -1,0 +1,76 @@
+# osv-scanner ignores for this example's dependency manifest.
+#
+# Scoped deliberately to examples/crewai-picket/ — it applies only to the
+# CrewAI demo's requirements.txt, never to anything fieldpass ships. fieldpass
+# itself is JavaScript (@modelcontextprotocol/sdk, node-html-parser, zod) and
+# has no Python runtime dependency at all.
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-311"
+ignoreUntil = 2026-10-25
+reason = """
+chromadb pre-auth code injection (CVE-2026-45829), reached transitively via
+crewai's chromadb~=1.1.0 memory backend. NO FIXED VERSION EXISTS upstream: OSV
+records the affected range as 1.0.0 through last_affected 1.5.9, and 1.5.9 is
+the newest release on PyPI, so there is nothing to bump to.
+
+Not exploitable here. The advisory requires an attacker to reach a running
+ChromaDB server's /api/v2/.../collections endpoint with trust_remote_code set.
+This demo starts no Chroma server and opens no network listener — it runs a
+CrewAI Flow against a local hostile-invoice.html fixture over stdio, offline,
+with no API key. chromadb is pulled in only because crewai declares it.
+
+Revisit by 2026-10-25 or when chroma-core/chroma#6717 ships a patched release,
+whichever comes first; drop this entry and bump chromadb at that point.
+"""
+
+# The three advisories below are the ones OSSF Scorecard's Vulnerabilities check
+# actually reports (code-scanning alert #26). The PYSEC-2026-311 entry above does
+# NOT cover them: it aliases to CVE-2026-45829 / GHSA-f4j7-r4q5-qw2c, a different
+# chromadb advisory. That entry is working — 45829 dropped out of Scorecard's list
+# once it landed — which is the evidence that Scorecard honours this file; it just
+# never named these IDs. Listed by the GHSA Scorecard prints, so the match is exact.
+#
+# All three share the reachability and exploitability analysis above: chromadb is
+# not declared in requirements.txt at all — it arrives transitively through
+# crewai==1.15.7's chromadb~=1.1.0 memory backend — and this demo starts no Chroma
+# server, opens no listener, and runs offline over stdio against a local
+# hostile-invoice.html fixture. Every one of them requires reaching a running
+# ChromaDB server's HTTP API as an authenticated (or, for the injection, any)
+# caller. Nothing fieldpass ships touches Python at all.
+#
+# None of them has a patched release: OSV records last_affected 1.5.9 and 1.5.9 is
+# the newest chromadb on PyPI (verified 2026-09-03), so there is nothing to bump
+# to. Same revisit date as above — drop all four entries and bump chromadb when
+# chroma-core/chroma ships a fixed release.
+
+[[IgnoredVulns]]
+id = "GHSA-2wm9-hf6c-p5cr"
+ignoreUntil = 2026-10-25
+reason = """
+CVE-2026-45830 — any authenticated user can read, write, update or delete data in
+another tenant's collection. Affected 0.4.17 through last_affected 1.5.9; no fix
+released. Requires a reachable multi-tenant Chroma server; this demo runs no
+server and has no second tenant. Transitive via crewai's chromadb~=1.1.0.
+"""
+
+[[IgnoredVulns]]
+id = "GHSA-36p7-vc44-83pf"
+ignoreUntil = 2026-10-25
+reason = """
+CVE-2026-45833 — code injection. Affected 0.4.17 through last_affected 1.5.9; no
+fix released. Requires reaching a running Chroma server's collection endpoints;
+this demo starts none and opens no network listener. Transitive via crewai's
+chromadb~=1.1.0.
+"""
+
+[[IgnoredVulns]]
+id = "GHSA-xph7-9rjv-w5fr"
+ignoreUntil = 2026-10-25
+reason = """
+CVE-2026-45831 — SimpleRBACAuthorizationProvider does not check which tenant,
+database or collection a permission applies to, so a granted permission applies
+everywhere. Affected 0.5.0 through last_affected 1.5.9; no fix released. This demo
+configures no authorization provider and runs no server. Transitive via crewai's
+chromadb~=1.1.0.
+"""

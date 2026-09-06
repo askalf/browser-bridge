@@ -1,0 +1,66 @@
+name: fieldpass publish
+
+# npm-ONLY publisher for @askalf/fieldpass, which lives in policy/ of this repo.
+# The ONLY workflow that can publish it via OIDC trusted publishing: the
+# npmjs.com trusted publisher must be bound to THIS repo (askalf/browser-bridge)
+# and THIS exact filename (fieldpass-publish.yml). No NPM_TOKEN secret is
+# needed (or set on this repo).
+#
+# fieldpass has no auto-release workflow — tags + GitHub releases are cut
+# manually. Bump policy/package.json + tag + release first, then dispatch this
+# (--ref master, this repo's default branch) to push that version to npm.
+# Running it without a matching tag/release leaves git and npm out of sync.
+#
+# Idempotent: if npm already has policy/package.json's version, the run exits
+# green without publishing — safe to re-dispatch any time.
+#
+# Tests run without the optional CDP/Claude deps, mirroring fieldpass-ci.yml.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Everything fieldpass used to run at its repo root now runs here.
+        working-directory: policy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # Trusted publishing (OIDC) needs npm >=11.5.1; Node 24 bundles npm 11.
+          # fieldpass-ci.yml still tests on the supported runtime floor.
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Skip if npm already has this version
+        id: gate
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          published=$(npm view "${name}@${version}" version 2>/dev/null || echo "")
+          if [ "$published" = "$version" ]; then
+            echo "npm already has ${name}@${version}; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - run: npm ci --omit=optional --no-audit --no-fund
+        if: steps.gate.outputs.skip != 'true'
+      - run: npm test
+        if: steps.gate.outputs.skip != 'true'
+      # Auth = OIDC via the npmjs.com trusted publisher bound to THIS workflow
+      # filename (fieldpass-publish.yml) in THIS repo — no NPM_TOKEN. Provenance
+      # is automatic under OIDC.
+      - run: npm publish --access public
+        if: steps.gate.outputs.skip != 'true'

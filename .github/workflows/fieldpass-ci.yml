@@ -1,0 +1,55 @@
+name: fieldpass ci
+
+# Test suite for @askalf/fieldpass, which lives in policy/. Runs only when
+# policy/ (or this file) changes — root build.yml covers the bridge itself and
+# never installs policy/'s deps.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'policy/**'
+      - '.github/workflows/fieldpass-ci.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'policy/**'
+      - '.github/workflows/fieldpass-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fieldpass-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: policy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      # tests need only node-html-parser; the CDP + Claude paths are optional deps
+      - run: npm ci --omit=optional --no-audit --no-fund
+      - run: npm test
+
+  # Exercise the declared engines floor (policy/package.json engines.node >= 20).
+  # A separate job, not a matrix, so `fieldpass-test` stays a single status
+  # context if it is ever made required.
+  fieldpass-test-node20:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: policy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+      - run: npm ci --omit=optional --no-audit --no-fund
+      - run: npm test
