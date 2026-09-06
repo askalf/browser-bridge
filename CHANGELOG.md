@@ -12,6 +12,10 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+### Fixed
+
+- Release notes: every GitHub release so far carried the body `Release vX.Y.Z` instead of its changelog section. The inline extraction regex used `(?=\n## \[|$)` under the `m` flag, so `$` matched the blank line right after the version heading and the lazy capture was always empty. Extraction now lives in `scripts/release-notes.mjs` (line-based, CRLF-safe, version matched literally) and `test/release-notes.test.mjs` asserts on every PR that the version in `package.json` has a section and that the CLI prints exactly what the workflow attaches.
+
 ### Changed
 
 - README rewritten as a trust document: a "who can do what" table for every party on the CDP path, a guarantees table where each row names the code that enforces it and a command that checks it against a running container, four explicit caveats (`--no-sandbox`, open-by-default CDP, the loopback relay, CRLSet under `--disable-component-update`), an architecture diagram, and a releases-and-supply-chain section with the provenance verify command. Fixes a stale claim: "not session-pinned" predated isolated session mode.
