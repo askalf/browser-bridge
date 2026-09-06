@@ -330,6 +330,10 @@ docker exec <c> curl -s http://127.0.0.1:9224/metrics
 - **Not a Chrome extension host.** Headless Chromium does not load extensions reliably.
 - **Not egress governance.** It gives you a browser and tells you honestly what that browser can do. Policy over what an agent may fetch is [fieldpass](https://github.com/askalf/fieldpass).
 
+### The policy layer lives here now
+
+fieldpass's source is the [`policy/`](policy/) directory of this repository. The npm package is unchanged: `npm i @askalf/fieldpass` (or `npx -y @askalf/fieldpass scan <url>`). Same bins, env vars and MCP tool names; only the repo moved. See [`policy/README.md`](policy/README.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

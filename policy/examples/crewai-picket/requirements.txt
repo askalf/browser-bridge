@@ -1,0 +1,13 @@
+# CrewAI Flow + MCP client (the `mcp` client library rides in with crewai).
+#   pip install -r requirements.txt
+crewai==1.15.7
+
+# Transitive floors, pinned up out of known-vulnerable ranges. crewai 1.15.7
+# already requires json-repair~=0.60.1 and mcp~=1.28.1; these restate the floors
+# so a resolver can never settle on an affected build:
+#   mcp         >= 1.28.1  — PYSEC-2026-3481 / -3482 / -3483 (cross-session task
+#                            access, unauthenticated session reuse on the HTTP
+#                            transports, missing WebSocket Host/Origin checks)
+#   json-repair >= 0.60.1  — GHSA-xf7x-x43h-rpqh (circular schema $ref CPU DoS)
+mcp>=1.28.1
+json-repair>=0.60.1

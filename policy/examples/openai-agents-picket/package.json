@@ -1,0 +1,15 @@
+{
+  "name": "openai-agents-picket-example",
+  "private": true,
+  "type": "module",
+  "description": "An OpenAI Agents SDK agent browsing the web through picket's injection firewall",
+  "scripts": {
+    "demo": "node agent_governed_browse.mjs",
+    "plumbing": "node _plumbing_check.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@openai/agents": "0.12.0",
+    "zod": "4.4.3"
+  }
+}
