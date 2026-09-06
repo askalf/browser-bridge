@@ -24,23 +24,13 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { GovernedBrowser } from './govern.mjs';
-import { captureFromHtml, captureFromBridge } from './capture.mjs';
+import { captureFromHtml, captureFromBridge, bridgeEndpoint } from './capture.mjs';
 import { detect } from './detect.mjs';
 import { ReplayOracle, snapshot, diffSnapshots } from './oracle.mjs';
 import { SessionRecorder, toCanonSkill } from './skill.mjs';
 
 const err = (text) => ({ isError: true, content: [{ type: 'text', text }] });
 const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-
-/** Resolve a CDP base (http://host:port) to the per-session WS endpoint, routing
- *  the socket back through the base host (mirrors demo/e2e-live.mjs). */
-async function bridgeEndpoint(base) {
-  const res = await fetch(`${base}/json/version`);
-  const v = await res.json();
-  const u = new URL(v.webSocketDebuggerUrl);
-  u.host = new URL(base).host;
-  return u.toString();
-}
 
 /**
  * Build a picket MCP server. Returns { server, picket } — `server` is an

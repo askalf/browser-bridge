@@ -245,6 +245,33 @@ export function inPageExtract() {
   return { title: document.title, nodes: out };
 }
 
+
+/**
+ * Resolve a CDP base (`http://host:port`, optionally carrying the browserless-
+ * style `?token=…` that askalf/browser-bridge's BRIDGE_TOKEN expects) to the
+ * per-session WebSocket endpoint. The token rides on `/json/version` AND on the
+ * returned ws URL (the bridge checks every request and every upgrade); the ws
+ * host is rewritten back to the base host so a tunnelled/port-forwarded bridge
+ * that advertises its internal address still connects through the base.
+ * `fetchImpl` is injectable for tests. Pure apart from the one fetch.
+ * @param {string} base
+ * @param {{fetch?: typeof fetch}} [deps]
+ */
+export async function bridgeEndpoint(base, deps = {}) {
+  const f = deps.fetch || fetch;
+  const b = new URL(base);
+  const token = b.searchParams.get('token');
+  const versionUrl = new URL('/json/version', b);
+  if (token) versionUrl.searchParams.set('token', token);
+  const res = await f(versionUrl.toString());
+  if (!res.ok) throw new Error(`${versionUrl.origin}/json/version -> HTTP ${res.status}${res.status === 401 ? ' (bridge token missing or wrong; pass it as ?token= on PICKET_CDP)' : ''}`);
+  const v = await res.json();
+  const u = new URL(v.webSocketDebuggerUrl);
+  u.host = b.host;
+  if (token) u.searchParams.set('token', token);
+  return u.toString();
+}
+
 /**
  * Drive the bridge to capture a live page. Non-destructive: isolated context,
  * close just our page/context, then disconnect — never browser.close().
@@ -270,10 +297,13 @@ export async function captureFromBridge(opts) {
   }
 
   const { default: puppeteer } = await import('puppeteer-core');
-  const browser = await puppeteer.connect({
-    browserURL: opts.browserURL,
-    browserWSEndpoint: opts.browserWSEndpoint,
-  });
+  // Resolve a browserURL ourselves rather than letting puppeteer do it: its
+  // own resolver cannot carry a ?token= (browser-bridge BRIDGE_TOKEN) onto
+  // /json/version or the ws upgrade, and never rewrites the ws host back
+  // through a tunnel. Same path for the CLI (--browser) and the MCP server.
+  const browserWSEndpoint = opts.browserWSEndpoint
+    || (opts.browserURL ? await bridgeEndpoint(opts.browserURL) : undefined);
+  const browser = await puppeteer.connect({ browserWSEndpoint });
   let context;
   try {
     context = await browser.createBrowserContext();

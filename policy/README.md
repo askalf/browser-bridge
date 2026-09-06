@@ -121,7 +121,7 @@ Wire it into an MCP client (e.g. Claude Code `.mcp.json` or Claude Desktop):
 }
 ```
 
-`PICKET_CDP` points at a DevTools endpoint for live URLs (omit it to analyze inline `html` only). `PICKET_JUDGE` (`dario`/`claude`) turns on the LLM second line; `PICKET_ALLOWLIST`/`PICKET_TASK` scope the gate and the safe view. The server never returns the raw text of a blocked node — only the verdict and finding categories — so the firewall can't be defeated through its own output.
+`PICKET_CDP` points at a DevTools endpoint for live URLs (omit it to analyze inline `html` only). A bridge that requires a token takes it browserless-style on the same URL, `PICKET_CDP=http://127.0.0.1:9333/?token=…` — that is what [askalf/browser-bridge](https://github.com/askalf/browser-bridge)'s `BRIDGE_TOKEN` expects, and the token rides on every request and WebSocket upgrade, never into the forwarded path. `PICKET_JUDGE` (`dario`/`claude`) turns on the LLM second line; `PICKET_ALLOWLIST`/`PICKET_TASK` scope the gate and the safe view. The server never returns the raw text of a blocked node — only the verdict and finding categories — so the firewall can't be defeated through its own output.
 
 ### …or over Streamable HTTP
 

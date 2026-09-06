@@ -54,9 +54,17 @@ const opts = {
   cdp: process.env.PICKET_CDP || null,
 };
 
+// The CDP base may carry a browserless-style ?token= (askalf/browser-bridge
+// BRIDGE_TOKEN). Never let it reach stderr: MCP hosts persist server stderr.
+const cdpForLog = (v) => {
+  if (!v) return 'none — html-only';
+  try { const u = new URL(v); return u.search ? `${u.origin}${u.pathname}?<redacted>` : v; }
+  catch { return '<set>'; }
+};
+
 const summary =
   `allowlist=[${allowlist.join(', ') || '∗ (open)'}] · ` +
-  `cdp=${process.env.PICKET_CDP || 'none — html-only'} · ` +
+  `cdp=${cdpForLog(process.env.PICKET_CDP)} · ` +
   `judge=${process.env.PICKET_JUDGE || 'off'}`;
 
 if (flag('http') || process.env.PICKET_MCP_PORT) {
