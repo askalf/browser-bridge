@@ -27,6 +27,11 @@ mcp:
       - any-glob-to-any-file:
           - 'mcp-server.mjs'
 
+policy:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'policy/**'
+
 docker:
   - changed-files:
       - any-glob-to-any-file:

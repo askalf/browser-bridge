@@ -9,13 +9,23 @@
 // assertions below fail loudly if that shape ever changes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const config = readFileSync(path.join(root, '.github', 'labeler.yml'), 'utf8');
+// Since the move into askalf/browser-bridge this package is policy/ of a larger
+// repo: the labeler config actions/labeler reads is the REPO root's
+// .github/labeler.yml, guarded by the repo root's test/labeler-config.test.mjs
+// (its `policy` rule covers policy/**). There is deliberately no policy/.github,
+// so these checks skip here instead of asserting against a file that would be
+// dead config if it existed. They still run in a standalone checkout.
+const configPath = path.join(root, '.github', 'labeler.yml');
+const skip = existsSync(configPath)
+  ? false
+  : 'no .github/labeler.yml at this root — the repo root labeler test covers policy/';
+const config = skip ? '' : readFileSync(configPath, 'utf8');
 
 const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
   .split('\n')
@@ -51,11 +61,11 @@ function globToRegExp(glob) {
 // Every quoted glob under a `- '…'` bullet in the changed-files blocks.
 const globs = [...config.matchAll(/^\s+- '([^']+)'$/gm)].map((m) => m[1]);
 
-test('the config actually declares globs', () => {
+test('the config actually declares globs', { skip }, () => {
   assert.ok(globs.length >= 10, `only found ${globs.length} globs — did the file shape change?`);
 });
 
-test('every glob matches at least one tracked file', () => {
+test('every glob matches at least one tracked file', { skip }, () => {
   const dead = globs.filter((g) => {
     const re = globToRegExp(g);
     return !tracked.some((f) => re.test(f));
@@ -63,7 +73,7 @@ test('every glob matches at least one tracked file', () => {
   assert.deepEqual(dead, [], `these labeler globs match nothing (moved or renamed?): ${dead.join(', ')}`);
 });
 
-test('labels named in the config exist in the repo label set', () => {
+test('labels named in the config exist in the repo label set', { skip }, () => {
   // Names only — a label the repo does not define gets created implicitly with
   // a default colour and no description, which is how label sets turn to mush.
   const labels = [...config.matchAll(/^'?([a-z][a-z0-9 :_-]*)'?:$/gim)].map((m) => m[1].trim());
