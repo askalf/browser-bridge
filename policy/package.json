@@ -1,6 +1,6 @@
 {
   "name": "@askalf/fieldpass",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Governed agentic browser — an indirect-prompt-injection firewall and action gate that wraps a CDP browser so agents can read untrusted web pages safely. Part of the Own Your Stack agent-security suite (redstamp · strongroom · truecopy · cordon).",
   "type": "module",
   "main": "src/index.mjs",
