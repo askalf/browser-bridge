@@ -1,0 +1,82 @@
+# OpenSSF Scorecard / osv-scanner vulnerability allowlist.
+#
+# Every advisory below is a *Python* dependency of the non-shipped example
+# integrations under policy/examples/{autogen-picket,crewai-picket}/requirements.txt
+# (demonstration code showing how to wire browser-bridge policy into autogen/crewai).
+# None are part of the published browser-bridge npm package, whose runtime deps are
+# Node-only (see package.json). Time-boxed so they resurface for review.
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2104"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2105"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2106"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2107"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2108"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2109"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2110"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2111"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2112"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2113"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2275"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-237"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-3545"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-3546"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-3547"
+ignoreUntil = 2026-12-09
+reason = "Python dep of non-shipped policy example (autogen/crewai demo); not in the published npm package."
