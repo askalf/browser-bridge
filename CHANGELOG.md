@@ -12,6 +12,23 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-11
+
+### Added
+
+- **fieldpass now lives in this repo, under `policy/`.** It keeps its own package,
+  changelog, CI and publish workflow and still ships to npm as `@askalf/fieldpass` — the
+  move is about keeping the policy layer next to the CDP surface it governs, not about
+  merging the two artifacts. Vendored at 0.6.1, which carries the token fix and redacts
+  the token in the MCP banner.
+
+### Security
+
+- `hono` 4.13.0 → 4.13.7, picking up the `parseBody()` memory-exhaustion, `toSSG()`
+  path-escape and query-parser-past-fragment advisories. `qs`, `fast-uri` and
+  `puppeteer-core` also moved.
+
+
 ### Fixed
 
 - Release notes: every GitHub release so far carried the body `Release vX.Y.Z` instead of its changelog section. The inline extraction regex used `(?=\n## \[|$)` under the `m` flag, so `$` matched the blank line right after the version heading and the lazy capture was always empty. Extraction now lives in `scripts/release-notes.mjs` (line-based, CRLF-safe, version matched literally) and `test/release-notes.test.mjs` asserts on every PR that the version in `package.json` has a section and that the CLI prints exactly what the workflow attaches.
