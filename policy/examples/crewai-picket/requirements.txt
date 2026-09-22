@@ -9,5 +9,12 @@ crewai==1.15.7
 #                            access, unauthenticated session reuse on the HTTP
 #                            transports, missing WebSocket Host/Origin checks)
 #   json-repair >= 0.60.1  — GHSA-xf7x-x43h-rpqh (circular schema $ref CPU DoS)
+#   aiohttp     >= 3.14.3  — PYSEC-2026-237 / -2104..-2113 / -3545..-3547
+#   requests    >= 2.33.0  — PYSEC-2026-2275
+# Those two arrive via instructor, whose python<3.10 markers cap them below the
+# fix. crewai needs >=3.10, so a real install already gets fixed builds; a
+# marker-blind resolver (OSV/Scorecard) took the capped branch until these.
 mcp>=1.28.1
 json-repair>=0.60.1
+aiohttp>=3.14.3
+requests>=2.33.0
