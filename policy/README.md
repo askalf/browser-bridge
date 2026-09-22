@@ -267,7 +267,7 @@ examples/              LangGraph.js · OpenAI Agents SDK · CrewAI · AutoGen, e
 
 ## The agent-security stack
 
-fieldpass governs the **browser**, and composes with the [agent-security-stack](https://github.com/askalf/agent-security-stack) trilogy — **[redstamp](https://github.com/askalf/redstamp)** contains the call · **[truecopy](https://github.com/askalf/truecopy)** vets the tool · **[strongroom](https://github.com/askalf/strongroom)** holds the keys — and with **[cordon](https://github.com/askalf/cordon)** (prompts/PII).
+fieldpass governs the **browser**, and composes with **[redstamp](https://github.com/askalf/redstamp)**, which contains the call, and **[truecopy](https://github.com/askalf/truecopy)**, which vets the tool — and with **[cordon](https://github.com/askalf/cordon)** (prompts/PII).
 
 Related: **[plumbline](https://github.com/askalf/plumbline)** — own your agent *trajectory*: out-of-band, read-only monitoring of the whole action sequence against the declared job. A monitor above the in-path layers, never a blocker.
 
