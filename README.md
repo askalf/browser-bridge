@@ -74,7 +74,6 @@ MIT. See [LICENSE](LICENSE).
 Part of **[Own Your Stack](https://github.com/askalf)**: open tools for owning your AI infrastructure instead of renting it by the token. One subscription. Your box. Your terms.
 
 - **[dario](https://github.com/askalf/dario)** — own your routing
-- **[hybrid](https://github.com/askalf/hybrid)** — own your inference
 - **[browser-bridge](https://github.com/askalf/browser-bridge)** — own your browser _(you are here)_
 - **[redstamp](https://github.com/askalf/redstamp)** — own your agent security
 - **[truecopy](https://github.com/askalf/truecopy)** — own your agent skills
