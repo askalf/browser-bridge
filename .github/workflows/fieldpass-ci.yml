@@ -22,6 +22,7 @@ permissions:
 jobs:
   fieldpass-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: policy
@@ -41,6 +42,7 @@ jobs:
   # context if it is ever made required.
   fieldpass-test-node20:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: policy
