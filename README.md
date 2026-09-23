@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src=".github/readme/hero.jpg" alt="browser-bridge: Own your browser. ALF, a friendly violet alien, holds a glowing browser window on port 9222, and Playwright, Puppeteer and MCP clients connect through its token-auth padlock." width="100%">
+
 # browser-bridge
 
 **Own your browser.**
