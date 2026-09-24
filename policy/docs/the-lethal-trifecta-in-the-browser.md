@@ -36,7 +36,7 @@ text at all* — replace it with an opaque placeholder before it reaches the mod
 
 ## How picket approaches it
 
-[picket](https://github.com/askalf/picket) is a thin governance layer that wraps a
+picket (now [fieldpass](https://github.com/askalf/browser-bridge/tree/master/policy)) is a thin governance layer that wraps a
 CDP browser. The agent talks to picket, never to Chrome directly, across three
 planes:
 
@@ -92,10 +92,10 @@ payload a static parse can't resolve.
 
 ## Where it fits
 
-picket is the browser leg of **Own Your Stack** — a small suite of agent-security
-building blocks: [warden](https://github.com/askalf/warden) gates actions,
-[keeper](https://github.com/askalf/keeper) brokers secrets,
-[canon](https://github.com/askalf/canon) vets skills, and picket governs the
+picket (now fieldpass) is the browser leg of **Own Your Stack** — a small suite of agent-security
+building blocks: [redstamp](https://github.com/askalf/redstamp) gates actions,
+[truecopy](https://github.com/askalf/truecopy) vets skills,
+[plumbline](https://github.com/askalf/plumbline) watches the whole trajectory, and fieldpass governs the
 browser. Each is independently useful; together they make giving an agent real
 capabilities a little less like handing it the keys and hoping.
 

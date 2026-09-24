@@ -7,9 +7,7 @@
 An agent can read untrusted web pages without being hijacked by them.
 
 [![npm](https://img.shields.io/npm/v/@askalf/fieldpass?color=blue&label=npm)](https://www.npmjs.com/package/@askalf/fieldpass)
-[![ci](https://github.com/askalf/fieldpass/actions/workflows/ci.yml/badge.svg)](https://github.com/askalf/fieldpass/actions/workflows/ci.yml)
-[![codeql](https://github.com/askalf/fieldpass/actions/workflows/codeql.yml/badge.svg)](https://github.com/askalf/fieldpass/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/askalf/fieldpass/badge)](https://scorecard.dev/viewer/?uri=github.com/askalf/fieldpass)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/askalf/browser-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/askalf/browser-bridge)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![downloads](https://img.shields.io/npm/dm/@askalf/fieldpass?color=blue&label=downloads)](https://www.npmjs.com/package/@askalf/fieldpass)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-3-brightgreen)](package.json)
@@ -49,7 +47,7 @@ fieldpass closes the loop the rest of the suite already covers everywhere *excep
 |---|---|
 | untrusted content reaches the agent | **fieldpass** (this) — perception firewall |
 | agent takes a dangerous action | **fieldpass** action gate → **[redstamp](https://github.com/askalf/redstamp)** |
-| private data is reachable / exfiltrated | **[strongroom](https://github.com/askalf/strongroom)** (scoped leases) · **[cordon](https://github.com/askalf/cordon)** (egress redaction) |
+| private data is reachable / exfiltrated | **[cordon](https://github.com/askalf/cordon)** (egress redaction) |
 
 The differentiator isn't a better scraper. It's that the browser is **governed** by a security layer the rest of the field doesn't have.
 
@@ -80,10 +78,10 @@ npm run demo:escalation  # deterministic miss → LLM-judge catch
 npm run demo:mcp         # drive the governed browser over the MCP protocol
 npm run demo:oracle      # cull an agent's browser fabrications, deterministically
 npm run demo:skill       # record a session → truecopy-pinnable skill → replay
-npx -y github:askalf/fieldpass scan demo/booby-trapped.html --safe   # CLI; exit 0 allow · 1 quarantine · 2 block
+npx -y @askalf/fieldpass scan demo/booby-trapped.html --safe   # CLI; exit 0 allow · 1 quarantine · 2 block
 ```
 
-> On npm: `npm i -g @askalf/fieldpass` (or `npx -y @askalf/fieldpass …`). Also installable straight from GitHub: `npm i -g github:askalf/fieldpass`.
+> On npm: `npm i -g @askalf/fieldpass` (or `npx -y @askalf/fieldpass …`). The source lives in [browser-bridge's `policy/`](https://github.com/askalf/browser-bridge/tree/master/policy); the old `askalf/fieldpass` repo is archived.
 
 ## Use it as an MCP server
 
@@ -110,7 +108,7 @@ Wire it into an MCP client (e.g. Claude Code `.mcp.json` or Claude Desktop):
   "mcpServers": {
     "fieldpass": {
       "command": "npx",
-      "args": ["-y", "github:askalf/fieldpass", "fieldpass-mcp"],
+      "args": ["-y", "-p", "@askalf/fieldpass", "fieldpass-mcp"],
       "env": {
         "PICKET_ALLOWLIST": "example.com,acme.example",
         "PICKET_CDP": "http://127.0.0.1:9222",
@@ -128,7 +126,7 @@ Wire it into an MCP client (e.g. Claude Code `.mcp.json` or Claude Desktop):
 Clients that can't spawn a stdio process — the Claude API's server-side MCP connector, Managed Agents, remote agent runtimes — attach to the same nine tools as a **URL-type MCP server**:
 
 ```bash
-PICKET_MCP_TOKEN=$(openssl rand -hex 24) npx -y github:askalf/fieldpass fieldpass-mcp --http --port 7425
+PICKET_MCP_TOKEN=$(openssl rand -hex 24) npx -y -p @askalf/fieldpass fieldpass-mcp --http --port 7425
 # → fieldpass MCP server ready · streamable-http http://127.0.0.1:7425/mcp · auth=bearer
 ```
 

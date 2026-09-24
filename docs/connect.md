@@ -54,7 +54,7 @@ See the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-pro
 
 ### From other Own Your Stack tools
 
-[hands](https://github.com/askalf/hands) fetches pages over plain HTTP; point its `read_page` at `BROWSER_BRIDGE_URL` and it gets a real Chromium for JS-heavy pages and servers that bounce non-browser user agents. [deepdive](https://github.com/askalf/deepdive) launches a local Playwright Chromium by default; swap `chromium.launch()` for `chromium.connectOverCDP(process.env.BROWSER_BRIDGE_URL)` and many runs share one bridge. The bridge already ships the stealth arguments deepdive lists locally, so drop them when connected. Most MCP browser servers accept a `browserURL`; point it at the bridge.
+[fieldpass](../policy/) wraps the bridge with an injection firewall and action gate: set `PICKET_CDP` to the bridge's CDP URL. Anything built on Playwright can swap `chromium.launch()` for `chromium.connectOverCDP(process.env.BROWSER_BRIDGE_URL)` so many runs share one bridge. Most MCP browser servers accept a `browserURL`; point it at the bridge.
 
 ## Session isolation
 

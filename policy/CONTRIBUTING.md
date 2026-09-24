@@ -18,8 +18,8 @@ fieldpass is a Node.js package. You need Node.js **20 or 22** (the versions CI
 tests against).
 
 ```bash
-git clone https://github.com/askalf/fieldpass.git
-cd fieldpass
+git clone https://github.com/askalf/browser-bridge.git
+cd browser-bridge/policy
 npm ci        # install dependencies
 npm test      # run the test suite (node --test)
 ```
