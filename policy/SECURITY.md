@@ -9,7 +9,7 @@ credential-injection escape — that's a vulnerability we want to hear about.
 
 Please report privately, not in a public issue:
 
-- Open a [GitHub security advisory](https://github.com/askalf/fieldpass/security/advisories/new), or
+- Open a [GitHub security advisory](https://github.com/askalf/browser-bridge/security/advisories/new), or
 - Email **hello@askalf.org** with `fieldpass security` in the subject.
 
 Include a minimal reproduction (a page/payload + the expected vs. actual verdict).

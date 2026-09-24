@@ -71,9 +71,9 @@ The run exits 0 only if all three planes prove out (`GOVERNED_FLOW_PASS`).
 
 ## Suite
 
-picket is the browser leg of the Own Your Stack agent-security tools:
-[warden](https://github.com/askalf/warden) (actions) ·
-[keeper](https://github.com/askalf/keeper) (secrets) ·
-[canon](https://github.com/askalf/canon) (skills). warden has the same
+fieldpass is the browser leg of the Own Your Stack agent-security tools:
+[redstamp](https://github.com/askalf/redstamp) (actions) ·
+[truecopy](https://github.com/askalf/truecopy) (skills) ·
+[plumbline](https://github.com/askalf/plumbline) (trajectory). redstamp has the same
 four-framework series for MCP *tool* governance — this series is the *browser*
 counterpart.

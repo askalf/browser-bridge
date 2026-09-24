@@ -78,10 +78,12 @@ Part of **[Own Your Stack](https://github.com/askalf)**: open tools for owning y
 - **[dario](https://github.com/askalf/dario)** — own your routing
 - **[browser-bridge](https://github.com/askalf/browser-bridge)** — own your browser _(you are here)_
 - **[redstamp](https://github.com/askalf/redstamp)** — own your agent security
-- **[truecopy](https://github.com/askalf/truecopy)** — own your agent skills
+- **[truecopy](https://github.com/askalf/truecopy)** — own your agent skills · [truecopy-action](https://github.com/askalf/truecopy-action) gates them in CI
 - **[cordon](https://github.com/askalf/cordon)** — own your prompts
+- **[plumbline](https://github.com/askalf/plumbline)** — own your agent trajectory
 - **[fieldpass](policy/)** — own your agent browser
 - **[amnesia](https://github.com/askalf/amnesia)** — own your search
+- **[checkout-with-retry](https://github.com/askalf/checkout-with-retry)** — own your CI with retrying checkouts
 - **[askalf](https://askalf.org)** — own your operation: the AI operation that runs Sprayberry Labs
 
 ---
