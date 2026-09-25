@@ -70,7 +70,7 @@ export function findEmDashes(diff) {
 // (a tool can append a generator footer on its own) and em dashes.
 export function findBodyProblems(body) {
   const problems = findAttribution({ message: body });
-  if (/claude\.ai\/code/i.test(body)) problems.push('contains a claude.ai/code session link');
+  if (/claude\.ai\/code\/session_/i.test(body)) problems.push('contains a Claude Code session link');
   if (body.includes(EM_DASH)) problems.push('contains an em dash');
   return problems;
 }
