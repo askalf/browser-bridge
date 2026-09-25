@@ -12,6 +12,8 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-25
+
 ### Added — MCP tools that act on the page: `browser_click`, `browser_type`, `browser_wait_for`
 
 - Until now the MCP endpoint could read a page but not drive it. The only way to click was
@@ -29,8 +31,6 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
   asserts the typed string appears nowhere in the result.
 - `browser_wait_for` takes exactly one of `selector` (visible) or `text` (in `innerText`). A call
   with neither or both is rejected before any browser connection is opened.
-
-## [0.6.1] - 2026-09-25
 
 ### Fixed
 
