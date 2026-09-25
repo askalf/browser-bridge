@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// Checks for what the repo's review gate blocks as generated or attributed
-// text, so it fails here and in CI before a reviewer has to say it:
+// Checks added text and Git metadata for disallowed attribution and characters:
 //   - an em dash (U+2014) on any added line of a text file
 //   - a commit authored or committed by a model identity, or a message
 //     carrying a model attribution trailer
@@ -12,8 +11,7 @@
 //   node scripts/check-hygiene.mjs --commit-msg <file>           (commit-msg)
 //   PR_BODY=... node scripts/check-hygiene.mjs --pr-body          (CI)
 //
-// When the gate blocks on something new, add it here with a test in
-// test/check-hygiene.test.mjs, and a line to CONTRIBUTING.md.
+// Keep checks and their regression coverage in sync with CONTRIBUTING.md.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -84,8 +82,7 @@ export function findEmDashes(diff) {
   return hits;
 }
 
-// Returns what in a PR description the gate would block: attribution lines
-// (a tool can append a generator footer on its own) and em dashes.
+// Returns attribution lines and em dashes found in a PR description.
 export function findBodyProblems(body) {
   const problems = findAttribution({ message: body });
   if (body.includes(EM_DASH)) problems.push('contains an em dash');

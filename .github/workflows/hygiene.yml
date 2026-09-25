@@ -1,9 +1,9 @@
 name: hygiene
 
 # Fails a PR that adds an em dash, or carries a model identity or
-# attribution in its commits or description, before a reviewer has to say
-# so. Its own workflow so that editing the description re-runs this check
-# and not the image build. See scripts/check-hygiene.mjs.
+# attribution in its commits or description. Its own workflow so that
+# editing the description re-runs this check and not the image build.
+# See scripts/check-hygiene.mjs.
 
 on:
   pull_request:

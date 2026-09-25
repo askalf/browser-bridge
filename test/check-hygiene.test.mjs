@@ -232,6 +232,6 @@ test('findBodyProblems flags a generator footer, a session link and an em dash',
     'contains an em dash',
   ]);
   assert.deepEqual(findBodyProblems('## Summary\n\nWorks with Claude Desktop.'), []);
-  // Describing the check is not a session link (it failed #113 this way).
+  // Describing the check is not a session link.
   assert.deepEqual(findBodyProblems('- `--pr-body` flags a claude.ai/code session link'), []);
 });
