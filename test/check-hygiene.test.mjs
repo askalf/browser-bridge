@@ -41,11 +41,24 @@ test('findEmDashes passes a reworded line that already had an em dash', () => {
   ]);
 });
 
+test('findEmDashes reads --- and +++ inside a hunk as content, not headers', () => {
+  // A removed SQL comment `-- old` arrives as `--- old`; an added `++ x` as `+++ x`.
+  const diff = [
+    'diff --git a/q.sql b/q.sql', '--- a/q.sql', '+++ b/q.sql', '@@ -1,2 +1,2 @@',
+    `--- old ${D} note`, `+-- new ${D} note`, '-x', '+++ still q.sql',
+  ].join('\n');
+  assert.deepEqual(findEmDashes(diff), []);
+  const added = diff + `\n@@ -9,0 +9 @@\n+new ${D} here`;
+  assert.deepEqual(findEmDashes(added), [{ file: 'q.sql', line: 9, text: `new ${D} here` }]);
+});
+
 test('findEmDashes skips lockfiles and deleted files, and passes an en dash or hyphen', () => {
   const diff = [
-    '+++ b/package-lock.json', '@@ -1 +1 @@', `+"x ${D} y"`,
-    '+++ /dev/null', '@@ -1 +0,0 @@',
-    '+++ b/docs/a.md', '@@ -0,0 +1,2 @@', '+range 1–2', '+a - b',
+    'diff --git a/package-lock.json b/package-lock.json',
+    '--- a/package-lock.json', '+++ b/package-lock.json', '@@ -1 +1 @@', `+"x ${D} y"`,
+    'diff --git a/gone.md b/gone.md', '--- a/gone.md', '+++ /dev/null', '@@ -1 +0,0 @@', `-old ${D}`,
+    'diff --git a/docs/a.md b/docs/a.md',
+    '--- a/docs/a.md', '+++ b/docs/a.md', '@@ -0,0 +1,2 @@', '+range 1\u20132', '+a - b',
   ].join('\n');
   assert.deepEqual(findEmDashes(diff), []);
 });
@@ -83,6 +96,19 @@ test('findAttribution flags other vendors\' trailers, generator lines and model 
   ]) {
     assert.ok(findAttribution({ message }).length > 0, message);
   }
+});
+
+test('findAttribution passes people whose name or login starts with a vendor word', () => {
+  for (const [authorName, authorEmail] of [
+    ['Claude Dupont', 'claude.dupont@example.fr'],
+    ['Gemini Rao', 'g@example.in'],
+    ['claudette', '1234+claudette@users.noreply.github.com'],
+    ['Pat', '99+codexter@users.noreply.github.com'],
+    ['Copilot Fan', '5+copilotfan@users.noreply.github.com'],
+  ]) {
+    assert.deepEqual(findAttribution({ authorName, authorEmail }), [], `${authorName} <${authorEmail}>`);
+  }
+  assert.deepEqual(findAttribution({ message: 'fix\n\nCo-authored-by: Claude Dupont <claude.dupont@example.fr>' }), []);
 });
 
 test('findAttribution passes bots that are not models', () => {
