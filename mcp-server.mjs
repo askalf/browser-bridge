@@ -8,7 +8,7 @@
  * stealth browser for free; in shared mode they share the one browser, exactly
  * like any other CDP client. Stealth, VPN routing, reaping — all inherited from
  * the bridge; this layer just exposes navigate/screenshot/evaluate/content/
- * console/pdf as MCP tools over Streamable HTTP.
+ * console/pdf, plus click/type/wait_for, as MCP tools over Streamable HTTP.
  *
  * Run standalone alongside the bridge:
  *   BRIDGE_CDP_URL=http://127.0.0.1:9222 node mcp-server.mjs
@@ -27,15 +27,22 @@
 
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
+export const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
+
 const CONSOLE_CAP = 200;
 const CONTENT_CAP = 100_000;
 const NAV_TIMEOUT_MS = 45_000;
+const WAIT_TIMEOUT_MS = 10_000;
+
+const timeoutArg = z.number().int().positive().max(NAV_TIMEOUT_MS).optional()
+  .describe(`How long to wait for the element, in ms (default ${WAIT_TIMEOUT_MS}, max ${NAV_TIMEOUT_MS})`);
 
 const text = (t) => ({ content: [{ type: 'text', text: t }] });
 const errText = (t) => ({ content: [{ type: 'text', text: t }], isError: true });
@@ -74,10 +81,22 @@ async function defaultConnect(cdpUrl, token, sessionKey) {
   };
 }
 
-// ── Per-session MCP server: the six browser tools bound to one lazy page ──
+// ── Per-session MCP server: the browser tools bound to one lazy page ──
+// Runs in the page: focus the element and select its whole content, so one Backspace empties
+// a multi-line textarea or a multi-paragraph contenteditable.
+export function selectAllContent(el) {
+  el.focus();
+  if (typeof el.select === 'function') { el.select(); return; }
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 export function buildSessionServer(rec, connect, log) {
   const mcp = new McpServer(
-    { name: 'browser-bridge', version: '0.3.0' },
+    { name: 'browser-bridge', version: VERSION },
     { capabilities: { tools: {} } },
   );
 
@@ -163,6 +182,81 @@ export function buildSessionServer(rec, connect, log) {
       if (clear) b.consoleBuffer.length = 0;
       return text(lines.length ? lines.join('\n') : '(no console output captured)');
     } catch (e) { return errText(`get_console failed: ${e.message}`); }
+  });
+
+  mcp.registerTool('browser_click', {
+    title: 'Click',
+    description: 'Click an element with a real (trusted) mouse event. Waits for the element to be visible first.',
+    inputSchema: {
+      selector: z.string().describe('CSS selector of the element to click'),
+      button: z.enum(['left', 'right', 'middle']).optional().describe('Mouse button (default: left)'),
+      clickCount: z.number().int().min(1).max(3).optional().describe('1 = click, 2 = double-click (default 1)'),
+      timeoutMs: timeoutArg,
+    },
+  }, async ({ selector, button, clickCount, timeoutMs }) => {
+    try {
+      const page = await getPage();
+      await page.waitForSelector(selector, { visible: true, timeout: timeoutMs || WAIT_TIMEOUT_MS });
+      await page.click(selector, { button: button || 'left', count: clickCount || 1 });
+      return text(`clicked ${selector}\nurl: ${page.url()}`);
+    } catch (e) { return errText(`click failed: ${e.message}`); }
+  });
+
+  mcp.registerTool('browser_type', {
+    title: 'Type',
+    description: 'Focus an element and type text into it with real (trusted) key events. '
+      + 'Optionally clear the field first and press Enter after.',
+    inputSchema: {
+      selector: z.string().describe('CSS selector of the input, textarea or contenteditable'),
+      text: z.string().describe('Text to type'),
+      clear: z.boolean().optional().describe('Select and delete the current value first (default: false)'),
+      submit: z.boolean().optional().describe('Press Enter after typing (default: false)'),
+      delayMs: z.number().int().min(0).max(500).optional().describe('Delay between keystrokes in ms (default 0)'),
+      timeoutMs: timeoutArg,
+    },
+  }, async ({ selector, text: value, clear, submit, delayMs, timeoutMs }) => {
+    try {
+      const page = await getPage();
+      await page.waitForSelector(selector, { visible: true, timeout: timeoutMs || WAIT_TIMEOUT_MS });
+      if (clear) {
+        await page.$eval(selector, selectAllContent);
+        await page.keyboard.press('Backspace');
+      }
+      await page.type(selector, value, { delay: delayMs || 0 });
+      if (submit) await page.keyboard.press('Enter');
+      // Report the length, never the text: it may be a password, and MCP
+      // hosts keep tool results in their transcripts.
+      return text(`typed ${value.length} chars into ${selector}${submit ? ' and pressed Enter' : ''}`);
+    } catch (e) { return errText(`type failed: ${e.message}`); }
+  });
+
+  mcp.registerTool('browser_wait_for', {
+    title: 'Wait for',
+    description: 'Wait until an element is visible (selector) or some text appears on the page (text). Give exactly one.',
+    inputSchema: {
+      selector: z.string().min(1).optional().describe('CSS selector to wait for (visible)'),
+      text: z.string().min(1).optional().describe('Text to wait for in the page\'s visible text'),
+      timeoutMs: timeoutArg.describe(`How long to wait, in ms (default ${WAIT_TIMEOUT_MS}, max ${NAV_TIMEOUT_MS})`),
+    },
+  }, async ({ selector, text: needle, timeoutMs }) => {
+    if ((selector === undefined) === (needle === undefined)) {
+      return errText('wait_for needs exactly one of selector or text');
+    }
+    try {
+      const page = await getPage();
+      const timeout = timeoutMs || WAIT_TIMEOUT_MS;
+      const started = Date.now();
+      if (selector !== undefined) {
+        await page.waitForSelector(selector, { visible: true, timeout });
+      } else {
+        await page.waitForFunction(
+          (t) => !!document.body && document.body.innerText.includes(t),
+          { timeout },
+          needle,
+        );
+      }
+      return text(`found ${selector !== undefined ? selector : JSON.stringify(needle)} after ${Date.now() - started}ms`);
+    } catch (e) { return errText(`wait_for failed: ${e.message}`); }
   });
 
   mcp.registerTool('browser_pdf', {

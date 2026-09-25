@@ -83,7 +83,7 @@ No client sees or closes another's targets. Every session launches through the s
 
 ## MCP endpoint
 
-[`mcp-server.mjs`](../mcp-server.mjs) is a thin MCP server that is itself a CDP client of the bridge, so any MCP client can drive a browser with no Puppeteer or CDP code of its own. Six tools over Streamable HTTP:
+[`mcp-server.mjs`](../mcp-server.mjs) is a thin MCP server that is itself a CDP client of the bridge, so any MCP client can drive a browser with no Puppeteer or CDP code of its own. Nine tools over Streamable HTTP:
 
 | Tool | Does |
 |---|---|
@@ -93,6 +93,11 @@ No client sees or closes another's targets. Every session launches through the s
 | `browser_get_content` | The page as `html` or visible `text` |
 | `browser_get_console` | Console and page-error messages captured this session |
 | `browser_pdf` | Render the page to a PDF resource |
+| `browser_click` | Click a CSS selector with a real mouse event, after waiting for it to be visible |
+| `browser_type` | Type into a field with real key events; optionally `clear` it first and `submit` with Enter. The result reports the length, never the text |
+| `browser_wait_for` | Wait for a `selector` to be visible or for `text` to appear on the page |
+
+`browser_click` and `browser_type` go through CDP's `Input` domain, so the page sees `isTrusted: true` events. Timing is not humanized: a click moves the pointer straight to the element's center, and keystrokes go back to back unless you pass `delayMs`. Clicking with `browser_evaluate` (`el.click()`) dispatches an untrusted event, which is one of the first things bot detection looks at.
 
 ```yaml
 services:
