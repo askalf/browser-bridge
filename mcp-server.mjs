@@ -234,10 +234,9 @@ export function buildSessionServer(rec, connect, log) {
     title: 'Wait for',
     description: 'Wait until an element is visible (selector) or some text appears on the page (text). Give exactly one.',
     inputSchema: {
-      selector: z.string().optional().describe('CSS selector to wait for (visible)'),
-      text: z.string().optional().describe('Text to wait for in the page\'s visible text'),
-      timeoutMs: z.number().int().positive().max(NAV_TIMEOUT_MS).optional()
-        .describe(`How long to wait, in ms (default ${WAIT_TIMEOUT_MS}, max ${NAV_TIMEOUT_MS})`),
+      selector: z.string().min(1).optional().describe('CSS selector to wait for (visible)'),
+      text: z.string().min(1).optional().describe('Text to wait for in the page\'s visible text'),
+      timeoutMs: timeoutArg.describe(`How long to wait, in ms (default ${WAIT_TIMEOUT_MS}, max ${NAV_TIMEOUT_MS})`),
     },
   }, async ({ selector, text: needle, timeoutMs }) => {
     if ((selector === undefined) === (needle === undefined)) {

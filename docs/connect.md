@@ -97,7 +97,7 @@ No client sees or closes another's targets. Every session launches through the s
 | `browser_type` | Type into a field with real key events; optionally `clear` it first and `submit` with Enter. The result reports the length, never the text |
 | `browser_wait_for` | Wait for a `selector` to be visible or for `text` to appear on the page |
 
-`browser_click` and `browser_type` go through CDP's `Input` domain, so the page sees `isTrusted: true` events with ordinary mouse and key timing. Clicking with `browser_evaluate` (`el.click()`) dispatches an untrusted event, which is one of the first things bot detection looks at.
+`browser_click` and `browser_type` go through CDP's `Input` domain, so the page sees `isTrusted: true` events. Timing is not humanized: a click moves the pointer straight to the element's center, and keystrokes go back to back unless you pass `delayMs`. Clicking with `browser_evaluate` (`el.click()`) dispatches an untrusted event, which is one of the first things bot detection looks at.
 
 ```yaml
 services:

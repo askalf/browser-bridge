@@ -203,6 +203,16 @@ test('browser_wait_for needs exactly one of selector or text, and checks before 
   assert.equal(connects, 0, 'a bad call must not open a browser');
 });
 
+test('browser_wait_for rejects an empty selector or text instead of matching at once', async () => {
+  let connects = 0;
+  const { client } = await linkClient(() => { connects++; return fakeBrowser(); });
+  for (const args of [{ text: '' }, { selector: '' }]) {
+    const r = await client.callTool({ name: 'browser_wait_for', arguments: args });
+    assert.equal(r.isError, true, JSON.stringify(args));
+  }
+  assert.equal(connects, 0, 'a bad call must not open a browser');
+});
+
 test('input tools reject a timeout past the navigation cap', async () => {
   const { client } = await linkClient(() => fakeBrowser());
   const r = await client.callTool({ name: 'browser_click', arguments: { selector: 'a', timeoutMs: 999_999 } });
