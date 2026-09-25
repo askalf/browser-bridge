@@ -200,19 +200,64 @@ test('--staged checks only what is staged', () => {
 });
 
 test('--commit-msg checks the message and the identity git will commit as', () => {
-  withRepo(({ dir, cli, model }) => {
+  withRepo(({ dir, git, cli, model }) => {
     const msg = join(dir, 'MSG');
+    // git sets GIT_EDITOR=: for the hook when no editor opens (-m, -F, --no-edit).
+    const noEditor = { GIT_EDITOR: ':' };
+    const editor = { GIT_EDITOR: 'vi' };
     writeFileSync(msg, 'fix: a thing\n\n# a comment line git strips\n');
-    assert.equal(cli(['--commit-msg', msg]).status, 0);
-    let r = cli(['--commit-msg', msg], model);
+    assert.equal(cli(['--commit-msg', msg], editor).status, 0);
+    let r = cli(['--commit-msg', msg], { ...editor, ...model });
     assert.equal(r.status, 1);
     assert.match(r.err, /author is Claude/);
     writeFileSync(msg, 'fix\n\nCo-Authored-By: ChatGPT <noreply@openai.com>\n');
-    r = cli(['--commit-msg', msg]);
+    r = cli(['--commit-msg', msg], noEditor);
     assert.equal(r.status, 1);
     assert.match(r.err, /Co-Authored-By: ChatGPT/);
     writeFileSync(msg, `fix ${D} thing\n`);
-    assert.match(cli(['--commit-msg', msg]).err, /em dash/);
+    assert.match(cli(['--commit-msg', msg], noEditor).err, /em dash/);
+
+    // Without an editor git keeps # lines, so they are checked, a bare # included.
+    writeFileSync(msg, `#113 fix ${D} thing\n`);
+    assert.match(cli(['--commit-msg', msg], noEditor).err, /em dash/);
+    writeFileSync(msg, 'fix\n#\n# Co-Authored-By: ChatGPT <noreply@openai.com>\n');
+    assert.match(cli(['--commit-msg', msg], noEditor).err, /Co-Authored-By: ChatGPT/);
+
+    // With an editor git strips # lines, so its template is not checked, in any locale.
+    const template = (lines) => ['fix: clean message', '', ...lines, ''].join('\n');
+    writeFileSync(msg, template([
+      '# Please enter the commit message for your changes. Lines starting',
+      "# with '#' will be ignored, and an empty message aborts the commit.",
+      '#', '# On branch gpt-5-migration', '#\tnew file:   gemini-2.5-pro.json', '#',
+    ]));
+    assert.equal(cli(['--commit-msg', msg], editor).status, 0);
+    writeFileSync(msg, template([
+      '# Bitte geben Sie eine Commit-Beschreibung f\u00fcr Ihre \u00c4nderungen ein.',
+      '#', '# Auf Branch gpt-5-migration', '#\tneue Datei:   gemini-2.5-pro.json', '#',
+    ]));
+    assert.equal(cli(['--commit-msg', msg], editor).status, 0);
+
+    // Under a non-strip cleanup mode git keeps # lines even with an editor.
+    writeFileSync(msg, `fix\n# kept ${D} line\n`);
+    git(['config', 'commit.cleanup', 'verbatim']);
+    assert.match(cli(['--commit-msg', msg], editor).err, /em dash/);
+    git(['config', 'commit.cleanup', 'strip']);
+    assert.equal(cli(['--commit-msg', msg], noEditor).status, 0, 'cleanup=strip drops # lines without an editor too');
+    git(['config', '--unset', 'commit.cleanup']);
+    assert.equal(cli(['--commit-msg', msg], editor).status, 0);
+
+    // core.commentChar decides which lines are comments.
+    git(['config', 'core.commentChar', ';']);
+    writeFileSync(msg, template([';', '; On branch gpt-5-migration', ';']));
+    assert.equal(cli(['--commit-msg', msg], editor).status, 0);
+    writeFileSync(msg, `#113 fix ${D} thing\n`);
+    assert.match(cli(['--commit-msg', msg], editor).err, /em dash/, '# is not a comment then');
+    writeFileSync(msg, 'fix\n; Co-Authored-By: ChatGPT <noreply@openai.com>\n');
+    assert.match(cli(['--commit-msg', msg], noEditor).err, /Co-Authored-By: ChatGPT/, 'a kept ; line is checked');
+    writeFileSync(msg, 'fix\n; Claude-Session: 01ABC\n');
+    assert.match(cli(['--commit-msg', msg], noEditor).err, /Claude-Session/);
+    git(['config', '--unset', 'core.commentChar']);
+
     // commit -v: everything from the scissors line on is the diff, not the message.
     writeFileSync(msg, [
       'fix: clean message', '',
@@ -220,7 +265,8 @@ test('--commit-msg checks the message and the identity git will commit as', () =
       '# Do not modify or remove the line above.',
       'diff --git a/a.md b/a.md', ` a ${D} b`, '+tested on claude-sonnet-5', '',
     ].join('\n'));
-    assert.equal(cli(['--commit-msg', msg]).status, 0);
+    assert.equal(cli(['--commit-msg', msg], editor).status, 0);
+    assert.equal(cli(['--commit-msg', msg], noEditor).status, 0);
   });
 });
 

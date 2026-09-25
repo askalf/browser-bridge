@@ -35,7 +35,7 @@ const MODEL_IDENTITY = [
 ];
 const isModel = (name, email) => MODEL_IDENTITY.some((re) => re.test(name) || re.test(email));
 const ATTRIBUTION = [
-  /^claude-session:/im,
+  /^[^\w\s]*\s*claude-session:/im,
   /claude\.ai\/code\/session_[\w-]+/i,
   /generated (with|by) \[?(claude code|chatgpt|codex|copilot|gemini)/i,
   /\bclaude-(opus|sonnet|haiku|fable)-\d/i,
@@ -97,7 +97,7 @@ export function findAttribution({ authorName = '', authorEmail = '', committerNa
       reasons.push(`${role} is ${name} <${email}>`);
     }
   }
-  for (const m of message.matchAll(/^co-authored-by:\s*(.*?)\s*<([^>]*)>/gim)) {
+  for (const m of message.matchAll(/^[^\w\s]*\s*co-authored-by:\s*(.*?)\s*<([^>]*)>/gim)) {
     if (isModel(m[1], m[2])) reasons.push(`message contains "${m[0].trim()}"`);
   }
   for (const re of ATTRIBUTION) {
@@ -152,11 +152,19 @@ export function main(argv) {
   if (mode === '--commit-msg' && arg) {
     const author = identity('GIT_AUTHOR_IDENT');
     const committer = identity('GIT_COMMITTER_IDENT');
+    const config = (key) => { try { return git('config', '--get', key).trim(); } catch { return ''; } };
+    const setChar = config('core.commentString') || config('core.commentChar');
+    const comment = (setChar && setChar !== 'auto' ? setChar : '#').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // git hands the hook the raw file: with commit -v it ends in a scissors
     // line and the staged diff, which is not part of the message.
-    const message = readFileSync(arg, 'utf8')
-      .replace(/^# -+ >8 -+$[\s\S]*/m, '')
-      .replace(/^#.*$/gm, '');
+    const raw = readFileSync(arg, 'utf8').replace(new RegExp(`^${comment} -+ >8 -+$[\\s\\S]*`, 'm'), '');
+    // git runs commit hooks with GIT_EDITOR=: when no editor opens (-m, -F,
+    // --no-edit). It strips comment lines under cleanup=strip, and under the
+    // default mode only when an editor opened.
+    const cleanup = config('commit.cleanup');
+    const editorOpened = process.env.GIT_EDITOR !== ':';
+    const stripsComments = cleanup === 'strip' || (editorOpened && ['', 'default'].includes(cleanup));
+    const message = stripsComments ? raw.replace(new RegExp(`^${comment}.*$`, 'gm'), '') : raw;
     const problems = findAttribution({
       authorName: author.name, authorEmail: author.email,
       committerName: committer.name, committerEmail: committer.email,
