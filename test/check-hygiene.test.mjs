@@ -1,0 +1,95 @@
+// scripts/check-hygiene.mjs: the em dash and model-attribution checks that
+// run in CI and from `npm run hygiene`. Em dashes are written as \u2014 so this
+// file passes its own check.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { findEmDashes, findAttribution } from '../scripts/check-hygiene.mjs';
+
+const D = '\u2014';
+const script = fileURLToPath(new URL('../scripts/check-hygiene.mjs', import.meta.url));
+
+test('findEmDashes reports added lines only, with file and new line number', () => {
+  const diff = [
+    'diff --git a/CHANGELOG.md b/CHANGELOG.md',
+    '--- a/CHANGELOG.md',
+    '+++ b/CHANGELOG.md',
+    '@@ -3,0 +4,2 @@',
+    `+### Added ${D} tools`,
+    '+plain line',
+    '@@ -10 +12 @@',
+    '-old line',
+    `+new ${D} line`,
+  ].join('\n');
+  assert.deepEqual(findEmDashes(diff), [
+    { file: 'CHANGELOG.md', line: 4, text: `### Added ${D} tools` },
+    { file: 'CHANGELOG.md', line: 12, text: `new ${D} line` },
+  ]);
+});
+
+test('findEmDashes passes a reworded line that already had an em dash', () => {
+  const diff = [
+    '+++ b/README.md', '@@ -5 +5 @@', `-old wording ${D} kept`, `+new wording ${D} kept`,
+    '@@ -9 +9 @@', `-one ${D} here`, `+one ${D} here ${D} and a new one`,
+  ].join('\n');
+  assert.deepEqual(findEmDashes(diff), [
+    { file: 'README.md', line: 9, text: `one ${D} here ${D} and a new one` },
+  ]);
+});
+
+test('findEmDashes skips lockfiles and deleted files, and passes an en dash or hyphen', () => {
+  const diff = [
+    '+++ b/package-lock.json', '@@ -1 +1 @@', `+"x ${D} y"`,
+    '+++ /dev/null', '@@ -1 +0,0 @@',
+    '+++ b/docs/a.md', '@@ -0,0 +1,2 @@', '+range 1–2', '+a - b',
+  ].join('\n');
+  assert.deepEqual(findEmDashes(diff), []);
+});
+
+test('findAttribution flags a model author or committer', () => {
+  assert.deepEqual(findAttribution({ authorName: 'Claude', authorEmail: 'noreply@anthropic.com' }),
+    ['author is Claude <noreply@anthropic.com>']);
+  assert.equal(findAttribution({ committerName: 'x', committerEmail: 'bot@anthropic.com' }).length, 1);
+});
+
+test('findAttribution flags trailers and model ids in the message', () => {
+  const message = 'fix: thing\n\nCo-Authored-By: Claude Opus <noreply@example.com>\nClaude-Session: https://x\n';
+  assert.equal(findAttribution({ message }).length, 2);
+  assert.equal(findAttribution({ message: 'Generated with [Claude Code](https://x)' }).length, 1);
+  assert.equal(findAttribution({ message: 'tested on claude-sonnet-5' }).length, 1);
+});
+
+test('findAttribution passes the owner identity and ordinary mentions of Claude', () => {
+  assert.deepEqual(findAttribution({
+    authorName: 'askalf', authorEmail: '263217947+askalf@users.noreply.github.com',
+    committerName: 'Thomas Sprayberry', committerEmail: '263217947+askalf@users.noreply.github.com',
+    message: 'docs: the MCP endpoint works with Claude Desktop\n\nCo-Authored-By: Someone <a@b.c>',
+  }), []);
+});
+
+test('--range fails a real commit made as a model with an em dash, and passes a clean one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hygiene-'));
+  const run = (args, env = {}) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env } });
+  const check = (range) => {
+    try { execFileSync(process.execPath, [script, '--range', range], { cwd: dir, stdio: 'pipe' }); return 0; }
+    catch (e) { return e.status; }
+  };
+  try {
+    run(['init', '-q', '-b', 'main']);
+    const owner = { GIT_AUTHOR_NAME: 'askalf', GIT_AUTHOR_EMAIL: 'o@users.noreply.github.com', GIT_COMMITTER_NAME: 'askalf', GIT_COMMITTER_EMAIL: 'o@users.noreply.github.com' };
+    writeFileSync(join(dir, 'a.md'), 'base\n');
+    run(['add', '.']); run(['commit', '-qm', 'base'], owner);
+    writeFileSync(join(dir, 'a.md'), 'base\nclean line\n');
+    run(['commit', '-qam', 'clean'], owner);
+    assert.equal(check('HEAD~1..HEAD'), 0);
+    writeFileSync(join(dir, 'a.md'), `base\nclean line\nbad ${D} line\n`);
+    run(['commit', '-qam', 'bad'], { ...owner, GIT_AUTHOR_NAME: 'Claude', GIT_AUTHOR_EMAIL: 'noreply@anthropic.com' });
+    assert.equal(check('HEAD~1..HEAD'), 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
