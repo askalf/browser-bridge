@@ -12,6 +12,33 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-25
+
+### Added
+
+- MCP tools that act on the page: `browser_click`, `browser_type` and `browser_wait_for`.
+  `browser_click` and `browser_type` use puppeteer's `page.click` / `page.type`, which send CDP
+  `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`, so page handlers see
+  `isTrusted === true`. `browser_evaluate` with `el.click()` dispatches `isTrusted: false`.
+- Both wait for the selector to be visible first (default 10s, capped at the 45s navigation
+  timeout). `browser_type` can `clear` the field (it selects the element's whole content and
+  deletes it, for inputs, multi-line textareas and contenteditables) and `submit` (Enter). Its
+  result reports the character count, never the text, because the text may be a password and
+  MCP hosts keep tool results in their transcripts.
+- `browser_wait_for` takes exactly one of `selector` (visible) or `text` (in `innerText`). A call
+  with neither or both is rejected before a browser connection is opened.
+
+### Fixed
+
+- The MCP endpoint reports the version in `package.json`. It reported 0.3.0 since 0.3.0.
+
+### Security
+
+- Base image `node:26-slim` moved to digest `14bf3ea…`, picking up upstream OS and
+  Chromium-dependency patches for everything built since 0.6.0.
+- `puppeteer-core` 25.10.0 to 25.11.0 (`devtools-protocol` along with it) and `zod`
+  4.5.4 to 4.6.5.
+
 ## [0.6.0] - 2026-09-11
 
 ### Added
