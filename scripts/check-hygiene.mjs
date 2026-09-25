@@ -10,6 +10,7 @@
 //   node scripts/check-hygiene.mjs --range origin/master..HEAD   (CI, pre-push)
 //   node scripts/check-hygiene.mjs --staged                      (pre-commit)
 //   node scripts/check-hygiene.mjs --commit-msg <file>           (commit-msg)
+//   PR_BODY=... node scripts/check-hygiene.mjs --pr-body          (CI)
 //
 // When the gate blocks on something new, add it here with a test in
 // test/check-hygiene.test.mjs, and a line to CONTRIBUTING.md.
@@ -26,7 +27,7 @@ const MODEL_IDENTITY = [/@anthropic\.com$/i, /^claude$/i];
 const ATTRIBUTION = [
   /^co-authored-by:.*\b(claude|anthropic)\b/im,
   /^claude-session:/im,
-  /generated with \[?claude code/i,
+  /generated (with|by) \[?claude code/i,
   /\bclaude-(opus|sonnet|haiku|fable)-\d/i,
 ];
 
@@ -63,6 +64,15 @@ export function findEmDashes(diff) {
   }
   flush();
   return hits;
+}
+
+// Returns what in a PR description the gate would block: attribution lines
+// (a tool can append a generator footer on its own) and em dashes.
+export function findBodyProblems(body) {
+  const problems = findAttribution({ message: body });
+  if (/claude\.ai\/code/i.test(body)) problems.push('contains a claude.ai/code session link');
+  if (body.includes(EM_DASH)) problems.push('contains an em dash');
+  return problems;
 }
 
 // Returns the reasons a commit is attributed to a model; empty when it is clean.
@@ -134,7 +144,10 @@ export function main(argv) {
     if (message.includes(EM_DASH)) problems.push('message contains an em dash');
     return report(problems.map((r) => `commit message: ${r}`));
   }
-  console.error('usage: check-hygiene.mjs --range <base>..<head> | --staged | --commit-msg <file>');
+  if (mode === '--pr-body') {
+    return report(findBodyProblems(process.env.PR_BODY || '').map((r) => `PR description: ${r}`));
+  }
+  console.error('usage: check-hygiene.mjs --range <base>..<head> | --staged | --commit-msg <file> | --pr-body');
   return 2;
 }
 
