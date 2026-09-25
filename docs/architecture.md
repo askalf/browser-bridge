@@ -7,7 +7,7 @@ Back to the [README](../README.md).
 ```mermaid
 flowchart LR
     C["CDP client<br/>Playwright · Puppeteer · raw WS"] -->|":9222"| P["cdp-proxy.mjs<br/>token · Host gate · origin lock"]
-    M["MCP client"] -->|":9225 /mcp"| S["mcp-server.mjs<br/>6 tools, CDP client of the bridge"]
+    M["MCP client"] -->|":9225 /mcp"| S["mcp-server.mjs<br/>9 tools, CDP client of the bridge"]
     S --> P
     P -->|"shared"| B["Chromium<br/>127.0.0.1 · non-root · stealth"]
     P -->|"isolated ?session="| K["session-broker.mjs<br/>one Chromium per connection, cap + idle reap"]
