@@ -144,27 +144,75 @@ test('findAttribution passes the owner identity and ordinary mentions of Claude'
   }), []);
 });
 
-test('--range fails a real commit made as a model with an em dash, and passes a clean one', () => {
+// Runs the CLI in a throwaway repo, so each mode is checked end to end and
+// each failure is pinned to the check that fired.
+function withRepo(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'hygiene-'));
-  const run = (args, env = {}) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env } });
-  const check = (range) => {
-    try { execFileSync(process.execPath, [script, '--range', range], { cwd: dir, stdio: 'pipe' }); return 0; }
-    catch (e) { return e.status; }
+  const owner = { GIT_AUTHOR_NAME: 'askalf', GIT_AUTHOR_EMAIL: 'o@users.noreply.github.com', GIT_COMMITTER_NAME: 'askalf', GIT_COMMITTER_EMAIL: 'o@users.noreply.github.com' };
+  const model = { GIT_AUTHOR_NAME: 'Claude', GIT_AUTHOR_EMAIL: 'noreply@anthropic.com' };
+  const git = (args, env = {}) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, ...owner, ...env } });
+  const cli = (args, env = {}) => {
+    try {
+      execFileSync(process.execPath, [script, ...args], { cwd: dir, stdio: 'pipe', env: { ...process.env, ...owner, ...env } });
+      return { status: 0, err: '' };
+    } catch (e) { return { status: e.status, err: String(e.stderr) }; }
   };
+  const write = (text) => writeFileSync(join(dir, 'a.md'), text);
   try {
-    run(['init', '-q', '-b', 'main']);
-    const owner = { GIT_AUTHOR_NAME: 'askalf', GIT_AUTHOR_EMAIL: 'o@users.noreply.github.com', GIT_COMMITTER_NAME: 'askalf', GIT_COMMITTER_EMAIL: 'o@users.noreply.github.com' };
-    writeFileSync(join(dir, 'a.md'), 'base\n');
-    run(['add', '.']); run(['commit', '-qm', 'base'], owner);
-    writeFileSync(join(dir, 'a.md'), 'base\nclean line\n');
-    run(['commit', '-qam', 'clean'], owner);
-    assert.equal(check('HEAD~1..HEAD'), 0);
-    writeFileSync(join(dir, 'a.md'), `base\nclean line\nbad ${D} line\n`);
-    run(['commit', '-qam', 'bad'], { ...owner, GIT_AUTHOR_NAME: 'Claude', GIT_AUTHOR_EMAIL: 'noreply@anthropic.com' });
-    assert.equal(check('HEAD~1..HEAD'), 1);
+    git(['init', '-q', '-b', 'main']);
+    write('base\n');
+    git(['add', '.']); git(['commit', '-qm', 'base']);
+    fn({ dir, git, cli, write, model });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+test('--range passes a clean commit and pins each failure to its check', () => {
+  withRepo(({ git, cli, write, model }) => {
+    write('base\nclean\n'); git(['commit', '-qam', 'clean']);
+    assert.equal(cli(['--range', 'HEAD~1..HEAD']).status, 0);
+
+    write('base\nclean\nby a model\n'); git(['commit', '-qam', 'model'], model);
+    let r = cli(['--range', 'HEAD~1..HEAD']);
+    assert.equal(r.status, 1);
+    assert.match(r.err, /author is Claude <noreply@anthropic\.com>/);
+    assert.doesNotMatch(r.err, /em dash/);
+
+    write(`base\nclean\nby a model\nbad ${D} line\n`); git(['commit', '-qam', 'dash']);
+    r = cli(['--range', 'HEAD~1..HEAD']);
+    assert.equal(r.status, 1);
+    assert.match(r.err, /a\.md:4: em dash in added text/);
+    assert.doesNotMatch(r.err, /author is/);
+  });
+});
+
+test('--staged checks only what is staged', () => {
+  withRepo(({ git, cli, write }) => {
+    write(`base\nnew ${D} line\n`);
+    assert.equal(cli(['--staged']).status, 0, 'unstaged change is not checked');
+    git(['add', 'a.md']);
+    const r = cli(['--staged']);
+    assert.equal(r.status, 1);
+    assert.match(r.err, /a\.md:2: em dash/);
+  });
+});
+
+test('--commit-msg checks the message and the identity git will commit as', () => {
+  withRepo(({ dir, cli, model }) => {
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, 'fix: a thing\n\n# a comment line git strips\n');
+    assert.equal(cli(['--commit-msg', msg]).status, 0);
+    let r = cli(['--commit-msg', msg], model);
+    assert.equal(r.status, 1);
+    assert.match(r.err, /author is Claude/);
+    writeFileSync(msg, 'fix\n\nCo-Authored-By: ChatGPT <noreply@openai.com>\n');
+    r = cli(['--commit-msg', msg]);
+    assert.equal(r.status, 1);
+    assert.match(r.err, /Co-Authored-By: ChatGPT/);
+    writeFileSync(msg, `fix ${D} thing\n`);
+    assert.match(cli(['--commit-msg', msg]).err, /em dash/);
+  });
 });
 
 test('findBodyProblems flags a generator footer, a session link and an em dash', () => {
