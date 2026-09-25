@@ -76,6 +76,8 @@ export function findEmDashes(diff) {
       const n = count(raw);
       if (n) { hunk.added += n; hunk.lines.push({ file, line, text: raw.slice(1).trim() }); }
       line++;
+    } else if (raw.startsWith(' ')) {
+      line++;
     }
   }
   flush();

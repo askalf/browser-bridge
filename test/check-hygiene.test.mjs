@@ -41,6 +41,14 @@ test('findEmDashes passes a reworded line that already had an em dash', () => {
   ]);
 });
 
+test('findEmDashes counts context lines toward the new-file line number', () => {
+  const diff = [
+    'diff --git a/a.md b/a.md', '--- a/a.md', '+++ b/a.md', '@@ -10,2 +10,3 @@',
+    ' context', `+text ${D} value`, ' more context',
+  ].join('\n');
+  assert.deepEqual(findEmDashes(diff), [{ file: 'a.md', line: 11, text: `text ${D} value` }]);
+});
+
 test('findEmDashes reads --- and +++ inside a hunk as content, not headers', () => {
   // A removed SQL comment `-- old` arrives as `--- old`; an added `++ x` as `+++ x`.
   const diff = [
