@@ -50,6 +50,8 @@ Every PR must pass these checks to merge:
 - `unit-tests` — the cdp-proxy + session-broker + mcp-server suite
 - `docker-build` — builds the image and runs a **boot smoke** (the container
   must actually start and reach "stealth Chromium running")
+- `hygiene`: no em dash in added text, and no model identity or attribution
+  trailer in the PR's commits. Run `npm run hygiene` before pushing.
 - `analyze (javascript-typescript)` — **CodeQL** static analysis
 - `stealth` — the bot-detection battery, run when you touch the browser/launch
   files; **fails if the stealth score drops below the floor**

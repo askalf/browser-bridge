@@ -1,0 +1,38 @@
+name: hygiene
+
+# Fails a PR that adds an em dash, or carries a model identity or
+# attribution in its commits or description. Its own workflow so that
+# editing the description re-runs this check and not the image build.
+# See scripts/check-hygiene.mjs.
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Added text and commit identities
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-hygiene.mjs --range "$BASE_SHA..$HEAD_SHA"
+      - name: PR description
+        if: always()
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-hygiene.mjs --pr-body
