@@ -44,9 +44,8 @@ const ATTRIBUTION = [
   /\bgemini-\d(\.\d+)?-(pro|flash)/i,
 ];
 
-// Parses `git diff --unified=0` output into the added lines that bring in an em
-// dash. Counting is per hunk: rewording a line that already had one passes,
-// and only a hunk that adds more em dashes than it removes is reported.
+// Parses `git diff --unified=0` output into added lines containing an em dash.
+// Counting is per hunk. Rewording a line that already had one passes.
 export function findEmDashes(diff) {
   const hits = [];
   let file = null;
