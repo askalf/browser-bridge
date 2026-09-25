@@ -15,7 +15,7 @@ on:
   issue_comment:
     types: [created, edited, deleted]
   workflow_run:
-    workflows: [actionlint, build, CodeQL, 'fieldpass ci', labels, stealth-score]
+    workflows: [actionlint, build, CodeQL, 'fieldpass ci', hygiene, labels, stealth-score]
     types: [completed]
 
 permissions: {}
