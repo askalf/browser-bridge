@@ -20,6 +20,7 @@ function fakeBrowser(overrides = {}) {
     waitForFunction: async (fn, opts, arg) => { calls.push(['waitForFunction', opts, arg]); return {}; },
     click: async (sel, opts) => { calls.push(['click', sel, opts]); },
     type: async (sel, value, opts) => { calls.push(['type', sel, value, opts]); },
+    $eval: async (sel, fn) => { calls.push(['$eval', sel, fn.name]); },
     keyboard: { press: async (key) => { calls.push(['press', key]); } },
     url: () => 'https://example.com/',
     title: async () => 'Example Domain',
@@ -163,7 +164,7 @@ test('browser_type clears, types, submits, and never echoes the typed text', asy
   assert.doesNotMatch(JSON.stringify(r), /hunter2/);
   assert.deepEqual(browser.page.calls, [
     ['waitForSelector', 'input[name=pw]', { visible: true, timeout: 10_000 }],
-    ['click', 'input[name=pw]', { count: 3 }],
+    ['$eval', 'input[name=pw]', 'selectAllContent'],
     ['press', 'Backspace'],
     ['type', 'input[name=pw]', 'hunter2-secret', { delay: 0 }],
     ['press', 'Enter'],

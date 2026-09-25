@@ -82,6 +82,18 @@ async function defaultConnect(cdpUrl, token, sessionKey) {
 }
 
 // ── Per-session MCP server: the browser tools bound to one lazy page ──
+// Runs in the page: focus the element and select its whole content, so one Backspace empties
+// a multi-line textarea or a multi-paragraph contenteditable.
+export function selectAllContent(el) {
+  el.focus();
+  if (typeof el.select === 'function') { el.select(); return; }
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 export function buildSessionServer(rec, connect, log) {
   const mcp = new McpServer(
     { name: 'browser-bridge', version: VERSION },
@@ -172,10 +184,6 @@ export function buildSessionServer(rec, connect, log) {
     } catch (e) { return errText(`get_console failed: ${e.message}`); }
   });
 
-  // Input goes through puppeteer's page.click / page.type, which dispatch CDP
-  // Input.* events: the page sees isTrusted === true, with real mouse movement
-  // and key timing, exactly as from a user. Clicking from browser_evaluate
-  // (el.click()) yields isTrusted === false, which bot detection checks for.
   mcp.registerTool('browser_click', {
     title: 'Click',
     description: 'Click an element with a real (trusted) mouse event. Waits for the element to be visible first.',
@@ -211,7 +219,7 @@ export function buildSessionServer(rec, connect, log) {
       const page = await getPage();
       await page.waitForSelector(selector, { visible: true, timeout: timeoutMs || WAIT_TIMEOUT_MS });
       if (clear) {
-        await page.click(selector, { count: 3 });
+        await page.$eval(selector, selectAllContent);
         await page.keyboard.press('Backspace');
       }
       await page.type(selector, value, { delay: delayMs || 0 });

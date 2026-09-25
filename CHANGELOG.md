@@ -14,37 +14,30 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [0.7.0] - 2026-09-25
 
-### Added — MCP tools that act on the page: `browser_click`, `browser_type`, `browser_wait_for`
+### Added
 
-- Until now the MCP endpoint could read a page but not drive it. The only way to click was
-  `browser_evaluate` with `el.click()`, which dispatches an event with `isTrusted: false`,
-  one of the first things bot detection checks, and a strange thing to hand out from an image
-  whose whole pitch is a measured stealth score.
-- `browser_click` and `browser_type` use puppeteer's `page.click` / `page.type`, which send CDP
-  `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`: the page sees trusted events with real
-  pointer movement and key sequencing. Checked against Chromium: a click handler and an Enter
-  `keydown` both read `isTrusted === true`.
-- Both wait for the selector to be **visible** first (default 10s, capped at the 45s navigation
-  timeout), so an agent does not have to poll. `browser_type` can `clear` the field (triple-click,
-  Backspace) and `submit` (Enter), and its result reports the character count, **never the
-  text**: it may be a password, and MCP hosts keep tool results in their transcripts. A test
-  asserts the typed string appears nowhere in the result.
+- MCP tools that act on the page: `browser_click`, `browser_type` and `browser_wait_for`.
+  `browser_click` and `browser_type` use puppeteer's `page.click` / `page.type`, which send CDP
+  `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`, so page handlers see
+  `isTrusted === true`. `browser_evaluate` with `el.click()` dispatches `isTrusted: false`.
+- Both wait for the selector to be visible first (default 10s, capped at the 45s navigation
+  timeout). `browser_type` can `clear` the field (it selects the element's whole content and
+  deletes it, for inputs, multi-line textareas and contenteditables) and `submit` (Enter). Its
+  result reports the character count, never the text, because the text may be a password and
+  MCP hosts keep tool results in their transcripts.
 - `browser_wait_for` takes exactly one of `selector` (visible) or `text` (in `innerText`). A call
-  with neither or both is rejected before any browser connection is opened.
+  with neither or both is rejected before a browser connection is opened.
 
 ### Fixed
 
-- The MCP endpoint told every client it was `browser-bridge` **0.3.0**. The version in
-  `mcp-server.mjs` was a literal, written at 0.3.0 and never touched again. It is now read
-  from `package.json` (shipped next to it in `/app`), and `test/mcp-server.test.mjs` asserts
-  the version an MCP client sees against `package.json` so the two can't drift apart again.
+- The MCP endpoint reports the version in `package.json`. It reported 0.3.0 since 0.3.0.
 
 ### Security
 
 - Base image `node:26-slim` moved to digest `14bf3ea…`, picking up upstream OS and
   Chromium-dependency patches for everything built since 0.6.0.
-- `puppeteer-core` 25.10.0 → 25.11.0 (`devtools-protocol` along with it) and `zod`
-  4.5.4 → 4.6.5.
+- `puppeteer-core` 25.10.0 to 25.11.0 (`devtools-protocol` along with it) and `zod`
+  4.5.4 to 4.6.5.
 
 ## [0.6.0] - 2026-09-11
 
