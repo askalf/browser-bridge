@@ -12,6 +12,22 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-25
+
+### Fixed
+
+- The MCP endpoint told every client it was `browser-bridge` **0.3.0**. The version in
+  `mcp-server.mjs` was a literal, written at 0.3.0 and never touched again. It is now read
+  from `package.json` (shipped next to it in `/app`), and `test/mcp-server.test.mjs` asserts
+  the version an MCP client sees against `package.json` so the two can't drift apart again.
+
+### Security
+
+- Base image `node:26-slim` moved to digest `14bf3ea…`, picking up upstream OS and
+  Chromium-dependency patches for everything built since 0.6.0.
+- `puppeteer-core` 25.10.0 → 25.11.0 (`devtools-protocol` along with it) and `zod`
+  4.5.4 → 4.6.5.
+
 ## [0.6.0] - 2026-09-11
 
 ### Added

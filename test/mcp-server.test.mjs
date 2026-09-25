@@ -9,6 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { readFileSync } from 'node:fs';
 import { buildSessionServer } from '../mcp-server.mjs';
 
 function fakeBrowser(overrides = {}) {
@@ -35,6 +36,12 @@ async function linkClient(connect) {
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   return { client, rec };
 }
+
+test('reports the package.json version to MCP clients', async () => {
+  const { client } = await linkClient(() => fakeBrowser());
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.deepEqual(client.getServerVersion(), { name: 'browser-bridge', version: pkg.version });
+});
 
 test('lists the six browser tools', async () => {
   const { client } = await linkClient(() => fakeBrowser());

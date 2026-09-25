@@ -4,6 +4,8 @@ All notable changes to `@askalf/fieldpass` are documented here.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-25
+
 ### Fixed
 - `picket-mcp` no longer prints the `?token=` part of `PICKET_CDP` in its
   startup banner on stderr; MCP hosts persist server stderr in their logs.

@@ -27,11 +27,16 @@
 
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+
+// Read, not hard-coded: a literal here said 0.3.0 from v0.3.0 through v0.6.0.
+// package.json sits next to this file in the repo and in the image (/app).
+export const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
 const CONSOLE_CAP = 200;
 const CONTENT_CAP = 100_000;
@@ -77,7 +82,7 @@ async function defaultConnect(cdpUrl, token, sessionKey) {
 // ── Per-session MCP server: the six browser tools bound to one lazy page ──
 export function buildSessionServer(rec, connect, log) {
   const mcp = new McpServer(
-    { name: 'browser-bridge', version: '0.3.0' },
+    { name: 'browser-bridge', version: VERSION },
     { capabilities: { tools: {} } },
   );
 
