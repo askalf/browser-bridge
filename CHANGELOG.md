@@ -14,12 +14,12 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [0.7.0] - 2026-09-25
 
-### Added — MCP tools that act on the page: `browser_click`, `browser_type`, `browser_wait_for`
+### Added: MCP tools that act on the page: `browser_click`, `browser_type`, `browser_wait_for`
 
 - Until now the MCP endpoint could read a page but not drive it. The only way to click was
-  `browser_evaluate` with `el.click()`, which dispatches an event with `isTrusted: false` —
-  one of the first things bot detection checks, and a strange thing to hand out from an image
-  whose whole pitch is a measured stealth score.
+  `browser_evaluate` with `el.click()`, which dispatches an event with `isTrusted: false`.
+  That is one of the first things bot detection checks, and a strange thing to hand out from an
+  image whose whole pitch is a measured stealth score.
 - `browser_click` and `browser_type` use puppeteer's `page.click` / `page.type`, which send CDP
   `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`: the page sees trusted events with real
   pointer movement and key sequencing. Checked against Chromium: a click handler and an Enter
