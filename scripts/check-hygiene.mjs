@@ -35,7 +35,7 @@ const MODEL_IDENTITY = [
 ];
 const isModel = (name, email) => MODEL_IDENTITY.some((re) => re.test(name) || re.test(email));
 const ATTRIBUTION = [
-  /^claude-session:/im,
+  /^[^\w\s]*\s*claude-session:/im,
   /claude\.ai\/code\/session_[\w-]+/i,
   /generated (with|by) \[?(claude code|chatgpt|codex|copilot|gemini)/i,
   /\bclaude-(opus|sonnet|haiku|fable)-\d/i,
@@ -97,7 +97,7 @@ export function findAttribution({ authorName = '', authorEmail = '', committerNa
       reasons.push(`${role} is ${name} <${email}>`);
     }
   }
-  for (const m of message.matchAll(/^#?\s*co-authored-by:\s*(.*?)\s*<([^>]*)>/gim)) {
+  for (const m of message.matchAll(/^[^\w\s]*\s*co-authored-by:\s*(.*?)\s*<([^>]*)>/gim)) {
     if (isModel(m[1], m[2])) reasons.push(`message contains "${m[0].trim()}"`);
   }
   for (const re of ATTRIBUTION) {

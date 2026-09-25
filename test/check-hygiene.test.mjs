@@ -252,6 +252,10 @@ test('--commit-msg checks the message and the identity git will commit as', () =
     assert.equal(cli(['--commit-msg', msg], editor).status, 0);
     writeFileSync(msg, `#113 fix ${D} thing\n`);
     assert.match(cli(['--commit-msg', msg], editor).err, /em dash/, '# is not a comment then');
+    writeFileSync(msg, 'fix\n; Co-Authored-By: ChatGPT <noreply@openai.com>\n');
+    assert.match(cli(['--commit-msg', msg], noEditor).err, /Co-Authored-By: ChatGPT/, 'a kept ; line is checked');
+    writeFileSync(msg, 'fix\n; Claude-Session: 01ABC\n');
+    assert.match(cli(['--commit-msg', msg], noEditor).err, /Claude-Session/);
     git(['config', '--unset', 'core.commentChar']);
 
     // commit -v: everything from the scissors line on is the diff, not the message.
