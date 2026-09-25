@@ -23,12 +23,21 @@ const EM_DASH = '\u2014';
 // Lockfiles and vendored bytes are machine-written; nobody reviews their prose.
 const SKIP_FILE = /(^|\/)(package-lock\.json|[^/]+\.(png|jpe?g|gif|webp|ico|pdf|woff2?))$/;
 
-const MODEL_IDENTITY = [/@anthropic\.com$/i, /^claude$/i];
+// Coding models and agents from any vendor, by commit name or email. Bots
+// that are not models (dependabot, github-actions) do not match.
+const MODEL_NAMES = 'claude|anthropic|gpt|chatgpt|openai|codex|copilot|gemini';
+const MODEL_IDENTITY = [
+  /@(anthropic|openai)\.com$/i,
+  new RegExp(`^(${MODEL_NAMES})([ -][\\w.-]+)*(\\[bot\\])?$`, 'i'),
+  new RegExp(`\\+(${MODEL_NAMES})[\\w-]*(\\[bot\\])?@users\\.noreply\\.github\\.com$`, 'i'),
+];
 const ATTRIBUTION = [
-  /^co-authored-by:.*\b(claude|anthropic)\b/im,
+  new RegExp(`^co-authored-by:.*\\b(${MODEL_NAMES})\\b`, 'im'),
   /^claude-session:/im,
-  /generated (with|by) \[?claude code/i,
+  /generated (with|by) \[?(claude code|chatgpt|codex|copilot|gemini)/i,
   /\bclaude-(opus|sonnet|haiku|fable)-\d/i,
+  /\bgpt-\d(\.\d+)?(-[a-z]+)?\b/i,
+  /\bgemini-\d(\.\d+)?-(pro|flash)/i,
 ];
 
 // Parses `git diff --unified=0` output into the added lines that bring in an em
@@ -151,6 +160,6 @@ export function main(argv) {
   return 2;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(main(process.argv.slice(2)));
 }
