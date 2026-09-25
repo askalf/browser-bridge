@@ -154,8 +154,6 @@ export function main(argv) {
     const committer = identity('GIT_COMMITTER_IDENT');
     // git hands the hook the raw file: with commit -v it ends in a scissors
     // line and the staged diff, which is not part of the message.
-    // `#` lines stay: git keeps them under `commit -m`, and its own help
-    // lines carry nothing this checks for.
     const message = readFileSync(arg, 'utf8').replace(/^# -+ >8 -+$[\s\S]*/m, '');
     const problems = findAttribution({
       authorName: author.name, authorEmail: author.email,

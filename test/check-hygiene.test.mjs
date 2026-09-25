@@ -213,7 +213,6 @@ test('--commit-msg checks the message and the identity git will commit as', () =
     assert.match(r.err, /Co-Authored-By: ChatGPT/);
     writeFileSync(msg, `fix ${D} thing\n`);
     assert.match(cli(['--commit-msg', msg]).err, /em dash/);
-    // commit -m keeps a line that starts with #, so it is checked.
     writeFileSync(msg, `#113 fix ${D} thing\n`);
     assert.match(cli(['--commit-msg', msg]).err, /em dash/);
     // commit -v: everything from the scissors line on is the diff, not the message.
