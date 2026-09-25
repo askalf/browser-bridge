@@ -38,6 +38,7 @@ const MODEL_IDENTITY = [
 const isModel = (name, email) => MODEL_IDENTITY.some((re) => re.test(name) || re.test(email));
 const ATTRIBUTION = [
   /^claude-session:/im,
+  /claude\.ai\/code\/session_[\w-]+/i,
   /generated (with|by) \[?(claude code|chatgpt|codex|copilot|gemini)/i,
   /\bclaude-(opus|sonnet|haiku|fable)-\d/i,
   /\bgpt-\d(\.\d+)?(-[a-z]+)?\b/i,
@@ -87,7 +88,6 @@ export function findEmDashes(diff) {
 // (a tool can append a generator footer on its own) and em dashes.
 export function findBodyProblems(body) {
   const problems = findAttribution({ message: body });
-  if (/claude\.ai\/code\/session_/i.test(body)) problems.push('contains a Claude Code session link');
   if (body.includes(EM_DASH)) problems.push('contains an em dash');
   return problems;
 }
@@ -155,7 +155,11 @@ export function main(argv) {
   if (mode === '--commit-msg' && arg) {
     const author = identity('GIT_AUTHOR_IDENT');
     const committer = identity('GIT_COMMITTER_IDENT');
-    const message = readFileSync(arg, 'utf8').replace(/^#.*$/gm, '');
+    // git hands the hook the raw file: with commit -v it ends in a scissors
+    // line and the staged diff, which is not part of the message.
+    const message = readFileSync(arg, 'utf8')
+      .replace(/^# -+ >8 -+$[\s\S]*/m, '')
+      .replace(/^#.*$/gm, '');
     const problems = findAttribution({
       authorName: author.name, authorEmail: author.email,
       committerName: committer.name, committerEmail: committer.email,
