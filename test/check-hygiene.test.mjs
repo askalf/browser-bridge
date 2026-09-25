@@ -215,6 +215,13 @@ test('--commit-msg checks the message and the identity git will commit as', () =
     assert.match(cli(['--commit-msg', msg]).err, /em dash/);
     writeFileSync(msg, `#113 fix ${D} thing\n`);
     assert.match(cli(['--commit-msg', msg]).err, /em dash/);
+    writeFileSync(msg, [
+      'fix: clean message', '',
+      '# Please enter the commit message for your changes. Lines starting',
+      '# On branch gpt-5-migration',
+      '#\tnew file:   gemini-2.5-pro.json', '',
+    ].join('\n'));
+    assert.equal(cli(['--commit-msg', msg]).status, 0);
     // commit -v: everything from the scissors line on is the diff, not the message.
     writeFileSync(msg, [
       'fix: clean message', '',
