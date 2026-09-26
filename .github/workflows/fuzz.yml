@@ -20,8 +20,8 @@ on:
   pull_request:
     paths:
       - 'fuzz/**'
-      - 'scripts/**'
-      - 'policy/**'
+      - 'cdp-proxy.mjs'
+      - 'ua.mjs'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/fuzz.yml'
