@@ -128,4 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           cp "$BUNDLE" "browser-bridge-${TAG}-image.sigstore.json"
-          gh release upload "$TAG" --clobber "browser-bridge-${TAG}-image.sigstore.json"
+          # Scorecard credits provenance only to *.intoto.jsonl assets: one
+          # DSSE envelope per line, taken from the v0.3 Sigstore bundle.
+          jq -ec '.dsseEnvelope' "$BUNDLE" > "browser-bridge-${TAG}-image.intoto.jsonl"
+          gh release upload "$TAG" --clobber "browser-bridge-${TAG}-image.sigstore.json" "browser-bridge-${TAG}-image.intoto.jsonl"
