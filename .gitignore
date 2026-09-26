@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 .env
 .env.*
+# fuzz.yml / fuzz/run.mjs working dirs
+fuzz/corpus/
+fuzz/crashes/
