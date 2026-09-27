@@ -1,0 +1,252 @@
+{
+  "name": "browser-bridge",
+  "tools": [
+    {
+      "name": "browser_click",
+      "title": "Click",
+      "description": "Click an element with a real (trusted) mouse event. Waits for the element to be visible first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string",
+            "description": "CSS selector of the element to click"
+          },
+          "button": {
+            "description": "Mouse button (default: left)",
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "middle"
+            ]
+          },
+          "clickCount": {
+            "description": "1 = click, 2 = double-click (default 1)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "timeoutMs": {
+            "description": "How long to wait for the element, in ms (default 10000, max 45000)",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 45000
+          }
+        },
+        "required": [
+          "selector"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser_evaluate",
+      "title": "Evaluate JavaScript",
+      "description": "Evaluate a JavaScript expression in the page and return the (JSON-serializable) result.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string",
+            "description": "A JS expression evaluated in page context, e.g. \"document.title\""
+          }
+        },
+        "required": [
+          "expression"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser_get_console",
+      "title": "Get console output",
+      "description": "Return console + page-error messages captured since the session started.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clear": {
+            "description": "Clear the buffer after reading",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser_get_content",
+      "title": "Get page content",
+      "description": "Return the current page as HTML or visible text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "description": "html (default) or text (visible innerText)",
+            "type": "string",
+            "enum": [
+              "html",
+              "text"
+            ]
+          },
+          "maxChars": {
+            "description": "Truncate beyond this many chars (default 100000)",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser_navigate",
+      "title": "Navigate",
+      "description": "Navigate the browser to a URL and wait for it to load.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Absolute URL to open"
+          },
+          "waitUntil": {
+            "description": "Puppeteer load condition (default: load)",
+            "type": "string",
+            "enum": [
+              "load",
+              "domcontentloaded",
+              "networkidle0",
+              "networkidle2"
+            ]
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser_pdf",
+      "title": "Render PDF",
+      "description": "Render the current page to a PDF (returned as an embedded resource).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser_screenshot",
+      "title": "Screenshot",
+      "description": "Capture a PNG screenshot of the current page.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fullPage": {
+            "description": "Capture the full scrollable page (default: viewport only)",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser_type",
+      "title": "Type",
+      "description": "Focus an element and type text into it with real (trusted) key events. Optionally clear the field first and press Enter after.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string",
+            "description": "CSS selector of the input, textarea or contenteditable"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to type"
+          },
+          "clear": {
+            "description": "Select and delete the current value first (default: false)",
+            "type": "boolean"
+          },
+          "submit": {
+            "description": "Press Enter after typing (default: false)",
+            "type": "boolean"
+          },
+          "delayMs": {
+            "description": "Delay between keystrokes in ms (default 0)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "timeoutMs": {
+            "description": "How long to wait for the element, in ms (default 10000, max 45000)",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 45000
+          }
+        },
+        "required": [
+          "selector",
+          "text"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser_wait_for",
+      "title": "Wait for",
+      "description": "Wait until an element is visible (selector) or some text appears on the page (text). Give exactly one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "description": "CSS selector to wait for (visible)",
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "description": "Text to wait for in the page's visible text",
+            "type": "string",
+            "minLength": 1
+          },
+          "timeoutMs": {
+            "description": "How long to wait, in ms (default 10000, max 45000)",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 45000
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}

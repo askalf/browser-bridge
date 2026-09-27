@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "skills": {
+    "browser-bridge": {
+      "source": "mcp/browser-bridge.json",
+      "kind": "mcp",
+      "hash": "ad6ec3bf4d65a7fd94f63b95c90bd91adba28c1e7af5df835783d219010bbbfa",
+      "scannedAt": "2026-09-27T00:36:27.629Z",
+      "verdict": "clean",
+      "findings": 0,
+      "detection": {
+        "engine": "redstamp",
+        "version": "0.7.5"
+      },
+      "parts": {
+        "browser_click": "fb09aeccce18e6c543ebcc57c29724aa8f99d13d3be94c53c525f0237d951cc7",
+        "browser_evaluate": "e209afceafcf9d2f0cd68cdf57747d5da15c456ec7fee9315780ef89fea5d539",
+        "browser_get_console": "af1154ef4fc9509f0f6be79d750a68fb0c1a100abc772b10c9b6ca2fec9af793",
+        "browser_get_content": "1772664d4341b7643e0b3c20179eb0cc39f1d2b4a7e5844f0d2996b302534124",
+        "browser_navigate": "4c5410d0fa4b074346cb6459f78d41062bd9c6bd161f5dde7a28e3f9d7e5544f",
+        "browser_pdf": "0f1533db005feae1abfa5209a33ef32e8771faf35420e4bd08e692aa85674d51",
+        "browser_screenshot": "16c379073e24f8405427431fab62a843bce9d5a4129167bd7e821bd31ee892e7",
+        "browser_type": "d619289098e13fbb6468fb9b043fa7c9e8e0a8a83e7c7b81dec646f3abaa343b",
+        "browser_wait_for": "4c5a1bfc50fd7013f6bfa0f2f3d59103606652fa70571564a39e7a6cda865d16",
+        "(manifest)": "bd5ce93ea67c5ac1f1b20d5e75f0670743afbc25a9baa8199414d52e07ffcf8d"
+      }
+    },
+    "fieldpass": {
+      "source": "mcp/fieldpass.json",
+      "kind": "mcp",
+      "hash": "ff3b6d02609dcaa83b77a7376b6a12022c394121f22c729d5de904b48124785e",
+      "scannedAt": "2026-09-27T00:36:27.641Z",
+      "verdict": "clean",
+      "findings": 0,
+      "detection": {
+        "engine": "redstamp",
+        "version": "0.7.5"
+      },
+      "parts": {
+        "picket_gate": "4eefaabcdada9587affc32d350fc4d7f6b8a395f91cbe4cf655b75adb2dea70d",
+        "picket_login": "532a1e7b53b268e8c29fa7b0298c8d936f5b23048c3209b2c4e4b09e08bac89d",
+        "picket_observe": "c2f9ff3a40798e341973408d84d7ee8b3c3f0b5ea1add8fb6ce8667f2f691b21",
+        "picket_record_start": "a78b86de6f3ff65e332efad2555ded58e1059e0dcde70332a4dbecb0a34ee2a0",
+        "picket_replay": "aaacb8b4f55910ed497737f9b5a19639f6f368b660819691cff80b176f6c57dd",
+        "picket_skill_emit": "51914b0333de681a97cee6fba1f4fc636be979a2ecc73ff37bf2f88f507ad6d0",
+        "picket_skill_replay": "e694b8247c716e170c873fc299ac3376436031510d7e4bed85215b4d139bc8a5",
+        "picket_snapshot": "66f976b791eb69d36c053f2babb63f7339afca51789e1770d7b3c136e08ef72d",
+        "picket_verify": "3c6a2c4871ec53014b12ac38a200c896d9b7a39c7742f6512324cb2672cfbe8b",
+        "(manifest)": "59abec548d2d0aeccf612211d06739219f97c8dbb8200bc032ff3ea37e71900b"
+      }
+    }
+  }
+}
