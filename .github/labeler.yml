@@ -26,6 +26,9 @@ mcp:
   - changed-files:
       - any-glob-to-any-file:
           - 'mcp-server.mjs'
+          - 'mcp/**'
+          - 'scripts/dump-tools.mjs'
+          - 'truecopy.lock'
 
 policy:
   - changed-files:

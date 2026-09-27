@@ -1,0 +1,45 @@
+# Gates the tool surface of both MCP servers in this repo with truecopy.
+# mcp/browser-bridge.json and mcp/fieldpass.json are each server's real tools/list
+# response (scripts/dump-tools.mjs), pinned in truecopy.lock. The chain is
+# code -> manifest (--check) -> lock (truecopy verify): a change to a tool's name,
+# description or schema, or a dependency bump that changes a generated schema,
+# fails until the manifest is regenerated and re-pinned with `truecopy add`.
+name: truecopy gate
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# attestations: read lets the action check the Sigstore attestation of the
+# truecopy tarball before installing it.
+permissions:
+  contents: read
+  attestations: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: verify pinned tool surface
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --omit=optional --no-audit --no-fund
+        working-directory: policy
+      - name: manifests match the live tool surface
+        run: node scripts/dump-tools.mjs --check
+      - name: truecopy verify
+        uses: askalf/truecopy-action@b2b1b9cf34bb37377878c3c8d59efd54bd030e0f # v1.1.1
+        with:
+          verify-attestation: 'true'
