@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLaunchOptions, envInt, envFlag } from '../launch-opts.mjs';
+import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher } from '../launch-opts.mjs';
 
 const base = {
   chromePath: '/usr/bin/chromium',
@@ -73,4 +73,54 @@ test('envInt: rejects values that would silently misbehave', () => {
 test('envFlag: only explicit truthy words turn a flag on', () => {
   for (const on of ['1', 'true', 'TRUE', 'yes', 'on']) assert.equal(envFlag('F', { F: on }), true, on);
   for (const off of [undefined, '', '0', 'false', 'no', 'off']) assert.equal(envFlag('F', { F: off }), false, String(off));
+});
+
+test('makeIsolatedLauncher: a failed launch removes its profile and rethrows the original error', async () => {
+  const { mkdtempSync, existsSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const root = mkdtempSync(join(tmpdir(), 'bb-launch-test-'));
+  try {
+    let seen;
+    const boom = new Error('chromium failed to start');
+    const launch = makeIsolatedLauncher({
+      tmpRoot: root,
+      optionsFor: (key, userDataDir) => ({ key, userDataDir }),
+      launchBrowser: async (opts) => { seen = opts.userDataDir; assert.ok(existsSync(seen)); throw boom; },
+    });
+    await assert.rejects(() => launch('k'), (err) => err === boom);
+    assert.equal(existsSync(seen), false, 'the profile directory is removed');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('makeIsolatedLauncher: close() shuts the browser and removes its profile; exits reach onExit', async () => {
+  const { mkdtempSync, existsSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const root = mkdtempSync(join(tmpdir(), 'bb-launch-test-'));
+  try {
+    let udd;
+    let closed = 0;
+    const listeners = {};
+    const browser = {
+      on: (ev, fn) => { listeners[ev] = fn; },
+      wsEndpoint: () => 'ws://127.0.0.1:40001/devtools/browser/x',
+      process: () => ({ pid: 4242 }),
+      close: async () => { closed++; },
+    };
+    const launch = makeIsolatedLauncher({
+      tmpRoot: root,
+      optionsFor: (key, userDataDir) => { udd = userDataDir; return {}; },
+      launchBrowser: async () => browser,
+    });
+    let exited = 0;
+    const s = await launch('k', { onExit: () => { exited++; } });
+    assert.equal(s.pid, 4242);
+    listeners.disconnected();
+    assert.equal(exited, 1);
+    assert.ok(existsSync(udd));
+    await s.close();
+    assert.equal(closed, 1);
+    assert.equal(existsSync(udd), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

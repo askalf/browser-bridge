@@ -52,15 +52,12 @@
  */
 
 import http from 'node:http';
-import os from 'node:os';
-import path from 'node:path';
-import fs from 'node:fs';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { createCdpProxy } from './cdp-proxy.mjs';
 import { createSessionBroker } from './session-broker.mjs';
 import { detectChromeMajor, buildUaPool, pickUa } from './ua.mjs';
-import { buildLaunchOptions, envInt, envFlag } from './launch-opts.mjs';
+import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher } from './launch-opts.mjs';
 import { clearStaleSingletonLock } from './profile-lock.mjs';
 import { parseProxyUrl, startAuthRelay } from './proxy-auth-relay.mjs';
 
@@ -436,31 +433,16 @@ async function startShared() {
 // ISOLATED runtime — a broker gives each connection its own Chromium.
 // ════════════════════════════════════════════════════════════════════
 async function startIsolated() {
-  const launch = async (key, { onExit } = {}) => {
-    const udd = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-sess-'));
-    let b;
-    try {
-      b = await puppeteer.launch(buildLaunchOptions({
-        chromePath: CHROME_PATH,
-        commonArgs: COMMON_ARGS,
-        debugPort: 0,
-        userDataDir: udd,
-        userAgent: pickUa(UA_POOL, key, FALLBACK_SEED),
-      }));
-    } catch (err) {
-      try { fs.rmSync(udd, { recursive: true, force: true }); } catch { /* gone */ }
-      throw err;
-    }
-    if (onExit) b.on('disconnected', onExit);
-    return {
-      wsEndpoint: b.wsEndpoint(),
-      pid: b.process()?.pid,
-      close: async () => {
-        try { await b.close(); } catch { /* already gone */ }
-        try { fs.rmSync(udd, { recursive: true, force: true }); } catch { /* gone */ }
-      },
-    };
-  };
+  const launch = makeIsolatedLauncher({
+    launchBrowser: (opts) => puppeteer.launch(opts),
+    optionsFor: (key, userDataDir) => buildLaunchOptions({
+      chromePath: CHROME_PATH,
+      commonArgs: COMMON_ARGS,
+      debugPort: 0,
+      userDataDir,
+      userAgent: pickUa(UA_POOL, key, FALLBACK_SEED),
+    }),
+  });
 
   const broker = createSessionBroker({
     launch, maxSessions: MAX_SESSIONS, idleTtlMs: SESSION_IDLE_MS,

@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 // ════════════════════════════════════════════════════════════════════
 // Launch-option assembly, kept pure so it can be asserted in tests.
 //
@@ -85,4 +89,40 @@ export function envInt(name, def, env = process.env) {
  */
 export function envFlag(name, env = process.env) {
   return /^(1|true|yes|on)$/i.test((env[name] ?? '').trim());
+}
+
+/**
+ * The session broker's launcher for isolated mode: each session gets a fresh
+ * profile directory under `tmpRoot` and its own browser. The directory is
+ * removed when the session closes, and also when the launch itself fails, so
+ * a failing launch (including the periodic health probe) never leaves
+ * profiles behind.
+ *
+ * @param {object} o
+ * @param {(opts: object) => Promise<any>} o.launchBrowser  puppeteer.launch
+ * @param {(key: string, userDataDir: string) => object} o.optionsFor  launch options for a session
+ * @param {string} [o.tmpRoot]  parent of the per-session profile directories
+ * @returns {(key: string, hooks?: {onExit?: () => void}) => Promise<{wsEndpoint: string, pid?: number, close: () => Promise<void>}>}
+ */
+export function makeIsolatedLauncher({ launchBrowser, optionsFor, tmpRoot = os.tmpdir() }) {
+  return async (key, { onExit } = {}) => {
+    const udd = fs.mkdtempSync(path.join(tmpRoot, 'bb-sess-'));
+    const removeProfile = () => { try { fs.rmSync(udd, { recursive: true, force: true }); } catch { /* gone */ } };
+    let b;
+    try {
+      b = await launchBrowser(optionsFor(key, udd));
+    } catch (err) {
+      removeProfile();
+      throw err;
+    }
+    if (onExit) b.on('disconnected', onExit);
+    return {
+      wsEndpoint: b.wsEndpoint(),
+      pid: b.process()?.pid,
+      close: async () => {
+        try { await b.close(); } catch { /* already gone */ }
+        removeProfile();
+      },
+    };
+  };
 }
