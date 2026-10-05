@@ -302,25 +302,30 @@ export function createMcpBridgeServer({
     return a.length === b.length && timingSafeEqual(a, b);
   };
 
-  // Resolves the parsed body (undefined when empty, null when malformed), or
-  // TOO_LARGE once the body passes maxBodyBytes.
+  // Resolves the parsed body (undefined when empty, null when malformed),
+  // TOO_LARGE once the body passes maxBodyBytes, or ABORTED when the client
+  // goes away before the body ends.
   const TOO_LARGE = Symbol('too large');
+  const ABORTED = Symbol('aborted');
   const readJson = (req) => new Promise((resolve) => {
     if (Number(req.headers['content-length']) > maxBodyBytes) { resolve(TOO_LARGE); return; }
     const chunks = [];
     let size = 0;
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
     req.on('data', (c) => {
+      if (done) return;
       size += c.length;
-      if (size > maxBodyBytes) { req.removeAllListeners('data'); req.resume(); resolve(TOO_LARGE); return; }
+      if (size > maxBodyBytes) { req.resume(); finish(TOO_LARGE); return; }
       chunks.push(c);
     });
     req.on('end', () => {
-      if (size > maxBodyBytes) return;
       const raw = Buffer.concat(chunks).toString('utf8');
-      if (!raw) { resolve(undefined); return; }
-      try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+      if (!raw) { finish(undefined); return; }
+      try { finish(JSON.parse(raw)); } catch { finish(null); }
     });
-    req.on('error', () => resolve(null));
+    req.on('error', () => finish(ABORTED));
+    req.on('close', () => finish(ABORTED)); // after 'end' this is a no-op
   });
 
   const tooLarge = (res) => {
@@ -340,8 +345,10 @@ export function createMcpBridgeServer({
     try {
       const parsed = typeof body === 'function' ? await body() : body;
       if (parsed === TOO_LARGE) { tooLarge(res); return; }
+      if (parsed === ABORTED) return; // nobody is left to answer
       await new Promise((resolve, reject) => {
         res.once('close', resolve);
+        if (res.destroyed) { resolve(); return; } // already closed: 'close' will not fire again
         rec.transport.handleRequest(req, res, parsed).catch(reject);
       });
     } finally { rec.inFlight--; rec.lastSeen = Date.now(); }
@@ -402,6 +409,7 @@ export function createMcpBridgeServer({
         const existing = typeof sid === 'string' ? sessions.get(sid) : null;
         if (existing) { await handle(existing, req, res, () => readJson(req)); return; }
         const body = await readJson(req);
+        if (body === ABORTED) return;
         if (body === TOO_LARGE) { tooLarge(res); return; }
         if (!isInitialize(body)) {
           res.writeHead(400, { 'Content-Type': 'application/json' });

@@ -72,6 +72,7 @@ function readJsonBody(req, max) {
       try { finish(raw ? JSON.parse(raw) : undefined); } catch { finish(BAD_JSON); }
     });
     req.on('error', () => finish(BAD_JSON));
+    req.on('close', () => finish(BAD_JSON)); // gone before 'end'; after it, a no-op
   });
 }
 
@@ -157,6 +158,7 @@ export async function startPicketHttpServer(opts = {}) {
       if (answered) return;
       await new Promise((resolve, reject) => {
         res.once('close', resolve);
+        if (res.destroyed) { resolve(); return; } // already closed: 'close' will not fire again
         session.transport.handleRequest(req, res, body).catch(reject);
       });
     } finally { session.inFlight--; session.lastSeen = Date.now(); }

@@ -25,7 +25,10 @@ function stubLauncher() {
     return {
       wsEndpoint: `ws://127.0.0.1:${port}/devtools/browser/uuid-${state.launches}`,
       pid: 1000 + state.launches,
-      close: async () => { state.closes++; state.closedKeys.push(key); },
+      close: async () => {
+        if (state.closeDelayMs) await sleep(state.closeDelayMs);
+        state.closes++; state.closedKeys.push(key);
+      },
     };
   };
   return { launch, state };
@@ -206,6 +209,27 @@ test('releasing a handle from an exited browser does not close its replacement',
   assert.equal(broker.stats().sessionsActive, 1, 'the replacement session survives');
   assert.deepEqual(state.closedKeys, ['k'], 'only the exited browser was closed');
   assert.equal(fresh.internalPort, 40002);
+  await broker.disposeAll();
+});
+
+test('reap never closes a session that replaced the one it found idle', async () => {
+  const { launch, state } = stubLauncher();
+  const broker = createSessionBroker({ launch, idleTtlMs: 1 });
+  const a = await broker.acquire('A', false);
+  const b = await broker.acquire('B', false);
+  const exitB = state.exit;
+  a.release(); b.release();
+  await sleep(5);
+  // B's browser exits and a client reconnects to B while reap is busy closing A.
+  state.closeDelayMs = 30;
+  const reaping = broker.reap();
+  exitB();
+  await sleep(0);
+  state.closeDelayMs = 0;
+  const b2 = await broker.acquire('B', false);
+  await reaping;
+  assert.equal(broker.stats().sessionsActive, 1, 'the in-use B2 survives the reap');
+  assert.equal(b2.internalPort, 40003);
   await broker.disposeAll();
 });
 

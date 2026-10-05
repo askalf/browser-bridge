@@ -114,3 +114,20 @@ test('a POST still uploading when the idle window passes keeps its session', asy
     assert.equal(mcp.sessionCount(), 1);
   });
 });
+
+test('an upload abandoned mid-body does not pin its session', async () => {
+  await withServer({ sessionIdleMs: 50 }, async ({ mcp, port }) => {
+    const init = await post(port, INIT);
+    const sid = init.headers.get('mcp-session-id');
+    await init.body?.cancel();
+    await new Promise((resolve) => {
+      const s = net.connect(port, '127.0.0.1', () => {
+        s.write(`POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n`
+          + `Accept: application/json, text/event-stream\r\nmcp-session-id: ${sid}\r\nContent-Length: 100\r\n\r\n{"jsonrpc"`);
+        setTimeout(() => { s.destroy(); resolve(); }, 20);
+      });
+    });
+    for (let i = 0; i < 60 && mcp.sessionCount() > 0; i++) await sleep(25);
+    assert.equal(mcp.sessionCount(), 0, 'the idle sweep still reclaims the session');
+  });
+});

@@ -592,6 +592,33 @@ test('relay - an upstream reset after the tunnel is up closes the client', async
   }
 });
 
+test('relay - a client reset on an established tunnel closes the upstream', async () => {
+  let upstreamClosed;
+  const closed = new Promise((r) => { upstreamClosed = r; });
+  const upstream = net.createServer((socket) => {
+    socket.once('data', () => socket.write('HTTP/1.1 200 Connection Established\r\n\r\n'));
+    socket.on('error', () => {});
+    socket.on('close', () => upstreamClosed(true));
+  });
+  const stopUp = trackSockets(upstream);
+  await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
+  const server = createAuthRelay({
+    host: '127.0.0.1', port: upstream.address().port, username: 'fleet', password: 's3cret', connectTimeoutMs: 5000,
+  });
+  const stop = trackSockets(server);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const res = await connectThroughRelay(server.address().port, 'example.com:443');
+    assert.equal(res.status, 200);
+    res.socket.resetAndDestroy();
+    const result = await Promise.race([closed, new Promise((r) => setTimeout(() => r(false), 2000).unref())]);
+    assert.equal(result, true, 'upstream tunnel must not outlive the client');
+  } finally {
+    stop();
+    stopUp();
+  }
+});
+
 test('failover — a 407 is NOT failed over: the upstream answered', async () => {
   // The safety property. Wrong credentials must surface as wrong credentials,
   // not quietly relocate the browser to the datacenter exit.

@@ -92,7 +92,13 @@ async function main() {
   const { results, webgl } = out;
   const total = results.length;
   const passed = results.filter((r) => r.pass).length;
-  const floor = parseInt(process.env.BRIDGE_STEALTH_FLOOR || String(total - 1), 10);
+  // A non-integer floor would parse to NaN, and `passed < NaN` never fails.
+  const rawFloor = (process.env.BRIDGE_STEALTH_FLOOR ?? '').trim();
+  if (rawFloor !== '' && !/^\d+$/.test(rawFloor)) {
+    console.error(`BRIDGE_STEALTH_FLOOR must be a non-negative integer, got ${JSON.stringify(rawFloor)}`);
+    process.exit(2);
+  }
+  const floor = rawFloor === '' ? total - 1 : Number(rawFloor);
 
   for (const r of results) console.log(`  ${r.pass ? 'PASS' : 'FAIL'}  ${r.name.padEnd(28)} ${r.detail}`);
   console.log(`  ----  webgl (informational)      ${webgl}`);

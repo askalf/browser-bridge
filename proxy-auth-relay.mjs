@@ -407,6 +407,7 @@ export function createAuthRelay({
       clientSocket.pipe(direct);
     });
     direct.setTimeout(connectTimeoutMs, () => direct.destroy(new Error('origin connect timed out')));
+    clientSocket.once('close', (hadError) => { if (hadError) direct.destroy(); else direct.end(); });
     direct.on('error', (err) => {
       log(`direct CONNECT ${req.url} failed: ${err.message}`);
       if (!clientSocket.destroyed) {
@@ -459,6 +460,12 @@ export function createAuthRelay({
       }
       if (settled) return;
       settled = true;
+      if (clientGone) {
+        // Chromium gave up first: nothing to answer, and a closed client says
+        // nothing about whether the upstream is reachable.
+        upstream.destroy();
+        return;
+      }
       if (failoverEnabled && isUnreachable(err)) {
         breaker.trip(err.code || err.message);
         upstream.destroy();
@@ -473,6 +480,14 @@ export function createAuthRelay({
     };
 
     upstream.on('error', fail);
+    // The other direction: pipe() forwards the client's clean end but not a
+    // reset, and an established upstream has no timeout, so a reset would
+    // leave it open until the far end closed it.
+    let clientGone = false;
+    clientSocket.once('close', (hadError) => {
+      if (!established) { clientGone = true; upstream.destroy(); return; }
+      if (hadError) upstream.destroy(); else upstream.end();
+    });
     // An upstream that accepts and then closes cleanly (a FIN, no error)
     // before answering would otherwise leave Chromium's tunnel hanging: the
     // close also clears the connect timeout. Same window as a reset, so the

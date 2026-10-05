@@ -165,7 +165,7 @@ export function createSessionBroker({
     const now = Date.now();
     for (const [key, rec] of [...sessions]) {
       if (rec.refs === 0 && !rec.launching && now - rec.lastUsed > idleTtlMs) {
-        await dispose(key);
+        await dispose(key, rec); // the key may have been replaced while earlier disposals awaited
       }
     }
   }

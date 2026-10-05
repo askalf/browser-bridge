@@ -26,11 +26,11 @@ Back to the [README](../README.md).
 | `BRIDGE_CDP_URL` | `http://127.0.0.1:9222` | *(mcp-server.mjs)* The bridge the MCP server connects to. |
 | `BRIDGE_MCP_SESSION_IDLE_MS` | `1800000` | *(mcp-server.mjs)* Close an MCP session, and its browser connection, after this long with no request in flight. Covers clients that exit without sending `DELETE`. |
 | `BROWSER_SESSION_ID` | unset | *(shared)* Seed for the user-agent pick, so a restarted container keeps the same UA. Unset = a new pick per process. |
-| `BRIDGE_STEALTH_FLOOR` | battery size - 1 | *(stealth-score.mjs)* Minimum number of passing checks; below it the script exits non-zero. |
+| `BRIDGE_STEALTH_FLOOR` | battery size - 1 | *(stealth-score.mjs)* Minimum number of passing checks; below it the script exits non-zero. A non-integer value is an error. |
 | `BRIDGE_STEALTH_OUT` | `stealth.json` | *(stealth-score.mjs)* Where the stealth score JSON is written. |
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Chromium binary. Rarely overridden. |
 
-Numeric settings must be positive integers; the bridge refuses to start on anything else (`abc`, `0`, `8s`) rather than run with a disabled cap or a busy-looping timer.
+The bridge's numeric settings must be positive integers; it refuses to start on anything else (`abc`, `0`, `8s`) rather than run with a disabled cap or a busy-looping timer.
 
 Ports: **9222** CDP (the image `EXPOSE`s it). **9224** health and metrics, container-internal. **9225** the optional MCP endpoint, only when `mcp-server.mjs` runs.
 
@@ -49,4 +49,4 @@ docker exec <c> curl -s http://127.0.0.1:9224/metrics
 #  "egress":"direct","proxyFallbacks":0,"pagesOpen":2,"pagesCreated":17}
 ```
 
-`/healthz` returns `503` only when the CDP connection is gone (shared mode) or a probe session cannot be launched (isolated mode; a broker with every slot in use reports `"pageCheck":"saturated"` at `200`). The deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute. One heartbeat log line per minute carries the same counters; pair with `restart: unless-stopped` for self-recovery.
+`/healthz` returns `503` only when the CDP connection is gone (shared mode) or a probe session cannot be launched (isolated mode; a broker with every slot in use reports `"pageCheck":"saturated"` at `200`). In shared mode the deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute; in isolated mode it launches a probe session, refreshed at most every 5 minutes, so a failed probe holds `503` until the next one. One heartbeat log line per minute carries the same counters; pair with `restart: unless-stopped` for self-recovery.
