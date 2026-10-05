@@ -94,10 +94,8 @@ export class GovernedBrowser {
    * @returns {Promise<{observation, detection, decision, safe}>}
    */
   async observe(input, opts = {}) {
-    // A per-call task wins over the instance default. Callers sharing one
-    // GovernedBrowser (the MCP server serves every session from one) pass it
-    // here instead of mutating this.task, which raced across awaits and let
-    // one caller's task show up in another's safe view.
+    // Resolve the task per call, so concurrent observations on one shared
+    // GovernedBrowser never see or modify each other's task or the default.
     const task = opts.task ?? this.task;
     // Prefer the live CDP bridge whenever one is reachable — even for inline
     // `html`, which captureFromBridge renders via page.setContent so real
