@@ -129,6 +129,8 @@ test('strippedPath removes only the token and leaves the rest of the query as se
   assert.equal(p('/json/version?token=s3cret'), '/json/version');
   assert.equal(p('/x?a=1&token=s3cret&b=%2F'), '/x?a=1&b=%2F');
   assert.equal(p('/x?tok%65n=s3cret&a=1'), '/x?a=1', 'an encoded key is still the token');
+  assert.equal(p('/x??token=s3cret&a=1'), '/x?a=1', 'a doubled ? does not hide the token');
+  assert.equal(p('/x?%3Ftoken=s3cret'), '/x');
 });
 
 test('forwards /json/new with its target URL intact', async () => {

@@ -88,12 +88,17 @@ export const forwardedHeaderLines = (req, targetHost) => {
  * turn `/json/new?https://example.com` into `?https%3A%2F%2Fexample.com=`.
  */
 export const strippedPath = (url) => {
-  if (!url.searchParams.has('token')) return url.pathname + url.search;
+  // A key counts as the token after percent-decoding and with any leading
+  // '?' removed: `??token=` is still the token to anything that re-parses
+  // the query and drops one '?'.
   const keyOf = (pair) => {
-    const k = pair.split('=')[0].replace(/\+/g, ' ');
-    try { return decodeURIComponent(k); } catch { return k; }
+    let k = pair.split('=')[0].replace(/\+/g, ' ');
+    try { k = decodeURIComponent(k); } catch { /* keep the raw key */ }
+    return k.replace(/^\?+/, '');
   };
-  const kept = url.search.slice(1).split('&').filter((pair) => keyOf(pair) !== 'token');
+  const pairs = url.search.slice(1).split('&');
+  const kept = pairs.filter((pair) => keyOf(pair) !== 'token');
+  if (kept.length === pairs.length) return url.pathname + url.search;
   return url.pathname + (kept.length ? `?${kept.join('&')}` : '');
 };
 
