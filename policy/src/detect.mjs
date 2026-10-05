@@ -186,8 +186,8 @@ function hasOffOriginEmail(text, ctx) {
   const emails = extractEmails(text);
   if (emails.length === 0) return false;
   if (!ctx.originHost) return true;
-  // Taking the last two labels made every *.co.uk address "same origin" on a
-  // .co.uk page, so a split exfil to drop@evil.co.uk went unredacted.
+  // The registrable domain, not the last two labels: on shop.acme.co.uk the
+  // site is acme.co.uk, and drop@evil.co.uk is someone else.
   const root = registrableRoot(ctx.originHost);
   return emails.some((e) => {
     const dom = (e.split('@')[1] || '').toLowerCase();

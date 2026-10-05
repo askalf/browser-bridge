@@ -16,7 +16,7 @@ import { applyEscalations, LLMJudge } from './judge.mjs';
 import { makeClaudeBackend, makeDarioBackend } from './claude-judge.mjs';
 import { buildSafeObservation } from './neutralize.mjs';
 import { makePolicy } from './policy.mjs';
-import { DANGEROUS_ACTION, CREDENTIAL_FIELD, SENSITIVE, matchAny, hostOf, identifierWords } from './patterns.mjs';
+import { DANGEROUS_ACTION, CREDENTIAL_FIELD, SENSITIVE, matchAny, hostOf, matchesIdentifier } from './patterns.mjs';
 
 /** Action types the gate knows how to reason about; anything else is denied. */
 const KNOWN_ACTIONS = new Set(['navigate', 'click', 'type', 'submit']);
@@ -155,15 +155,15 @@ export class GovernedBrowser {
       // The agent obtaining and typing a secret defeats the whole identity plane.
       const looksCredential =
         action.credential ||
-        CREDENTIAL_FIELD.test(identifierWords(action.selector || '')) ||
+        matchesIdentifier(CREDENTIAL_FIELD, action.selector || '') ||
         matchAny(action.text || '', SENSITIVE);
       if (looksCredential) {
         return this._log({ plane: 'action', action: { ...action, text: '<redacted>' }, allowed: false, reason: 'credential-shaped field/value — must be injected via login(), never typed by the agent' });
       }
     }
     if (action.type === 'click' || action.type === 'submit') {
-      const blob = identifierWords(`${action.selector || ''} ${action.text || ''} ${action.intent || ''}`);
-      if (matchAny(blob, DANGEROUS_ACTION)) {
+      const blob = `${action.selector || ''} ${action.text || ''} ${action.intent || ''}`;
+      if (DANGEROUS_ACTION.some((re) => matchesIdentifier(re, blob))) {
         return this._log({ plane: 'action', action, allowed: false, requireApproval: true, reason: 'high-authority action — step-up approval required' });
       }
     }

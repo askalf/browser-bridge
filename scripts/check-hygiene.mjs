@@ -139,8 +139,8 @@ function dashProblems(diff) {
 export function main(argv) {
   const [mode, arg] = argv;
   if (mode === '--range' && arg) {
-    // Accept A..B and A...B alike. Splitting on '..' alone turned A...B into
-    // a head of '.B' and a 'git diff A....B' that git rejects.
+    // A..B and A...B both mean "what B adds over A": the diff runs from the
+    // merge base (three dots) and the commit check walks the two-dot range.
     const [base, head = 'HEAD'] = arg.split(/\.{2,3}/);
     const problems = dashProblems(git('diff', '--unified=0', '--no-color', `${base}...${head || 'HEAD'}`));
     for (const c of commitsIn(`${base}..${head || 'HEAD'}`)) {

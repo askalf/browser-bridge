@@ -104,12 +104,20 @@ export const DANGEROUS_ACTION = [
 /**
  * Split identifier-style words so the letter-only boundaries above see them:
  * `txtPassword` -> `txt Password`, `APIKey` -> `API Key`. Underscores and
- * digits already count as boundaries (`user_password`, `password1`), which
- * `\b` did not: `_` and digits are word characters to it, so `#user_password`
- * and `#buyNow` used to pass the gate. Match the gate's patterns against this.
+ * digits already count as boundaries (`user_password`, `password1`); `\b`
+ * would not, since both are word characters to it. Splitting can also break a
+ * word apart (`#2FA` -> `#2 FA`, `passWord` -> `pass Word`), so match the
+ * gate's patterns with `matchesIdentifier`, which tries the text as written
+ * and split.
  */
 export function identifierWords(text) {
   return String(text).replace(/([a-z\d])([A-Z])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
+}
+
+/** True when `re` matches `text` as written or with its identifiers split. */
+export function matchesIdentifier(re, text) {
+  const raw = String(text);
+  return re.test(raw) || re.test(identifierWords(raw));
 }
 
 /** Known data-exfil sinks: even same-shape URLs to these are suspicious. */
@@ -233,8 +241,8 @@ export function foldCharMap(text) {
     const ch = String.fromCodePoint(stripped.codePointAt(i));
     const piece = (CONFUSABLES.get(ch) ?? ch).normalize('NFKC');
     // One entry per UTF-16 unit, not per code point: callers index `map`
-    // with RegExp match indices, which count units. Per code point, every
-    // astral char (emoji, CJK Ext-B) before a forgery shifted the span.
+    // with RegExp match indices, which count units, and an astral char
+    // (emoji, CJK Ext-B) is two of them.
     for (let k = 0; k < piece.length; k++) map.push(i);
     folded += piece;
     i += ch.length;

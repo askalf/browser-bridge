@@ -1,7 +1,7 @@
 /**
  * Regressions for evasions and leaks found in a repo-wide review: invisible
- * characters outside the old zero-width list, astral text shifting the fence
- * escape, identifier-style selectors slipping past the gate, a judge verdict
+ * characters beyond the zero-width set, astral text before a forged fence,
+ * identifier-style selectors slipping past the gate, a judge verdict
  * lost to spelling, a forged fence through the URL, and the bridge token in
  * an error message.
  */
@@ -52,7 +52,9 @@ test('a URL carrying a newline cannot forge the close fence', () => {
 
 test('gate refuses identifier-style credential selectors', () => {
   const p = new GovernedBrowser();
-  for (const selector of ['#user_password', '#txtPassword', 'input[name=password1]', 'input[name=api_key]', '#card_number', '#APIKey', '#otpInput']) {
+  // Includes forms the plain pattern already refused, which splitting alone would break apart.
+  for (const selector of ['#user_password', '#txtPassword', 'input[name=password1]', 'input[name=api_key]', '#card_number', '#APIKey', '#otpInput',
+    '#2FA', 'input[name=passWord]', '#PASSWORD', '#MFA', 'input[type=password]']) {
     assert.equal(p.gate({ type: 'type', selector, text: 'x' }).allowed, false, selector);
   }
   for (const selector of ['#search', '#username', '#typeahead', '#firstName', '#secretary-name']) {
@@ -62,7 +64,8 @@ test('gate refuses identifier-style credential selectors', () => {
 
 test('gate steps up on identifier-style dangerous clicks, not on look-alike words', () => {
   const p = new GovernedBrowser();
-  for (const a of [{ selector: '#buyNow' }, { selector: 'button.pay_now' }, { selector: '#deleteAccount' }, { selector: 'button', text: 'Confirm payment' }]) {
+  for (const a of [{ selector: '#buyNow' }, { selector: 'button.pay_now' }, { selector: '#deleteAccount' }, { selector: 'button', text: 'Confirm payment' },
+    { selector: '#DisableMFA' }, { selector: 'button', text: 'Disable 2FA' }, { selector: '#CHECKOUT' }]) {
     const r = p.gate({ type: 'click', ...a });
     assert.equal(r.requireApproval, true, JSON.stringify(a));
   }
