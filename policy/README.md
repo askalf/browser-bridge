@@ -215,7 +215,7 @@ All five roadmap stages shipped — deterministic firewall → LLM-judge → MCP
 | layer | where | what it proves |
 |---|---|---|
 | **LLM-judge escalation** | `src/judge.mjs` | ambiguous residue routes to a model verdict; the deterministic fast path keeps the obvious majority. Calibration corpus + a content-keyed verdict cache (repeat fragments are free) |
-| **MCP server** | `src/mcp.mjs`, `bin/picket-mcp.mjs` | all planes for any MCP client — observe/gate/login, the oracle, the skill recorder |
+| **MCP server** | `src/mcp.mjs`, `bin/picket-mcp.mjs` | all planes for any MCP client: observe/gate/login, the oracle, the skill recorder |
 | **Live context-broker** | `src/broker.mjs` | a pool of isolated, strongroom-backed persona contexts on one shared Chrome — per-persona lock (concurrent agents never share a session), LRU eviction, non-destructive `close()` |
 | **Session → truecopy skill** | `src/skill.mjs` | a governed session recorded into a JSON manifest **truecopy loads as a skill** — `scan`/`pin`/`sign`/`verify` work on it unchanged (proven: truecopy flags a session that recorded a hostile page). The browser, in the supply chain |
 | **Replay verification oracle** | `src/oracle.mjs` | a DETERMINISTIC gate (no LLM — a model asked "did it work?" confabulates "yes") that culls an agent's browser fabrications: `snapshot` fingerprints, `diffSnapshots` flags a clean page that *regressed to an injection*, `verifyClaims` checks explicit claims against the REAL re-captured page |

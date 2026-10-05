@@ -447,9 +447,19 @@ export function createAuthRelay({
     // so the 'close' that follows either one is not mistaken for a new failure.
     let settled = false;
     const fail = (err) => {
+      if (established) {
+        // The tunnel is up and carrying TLS, so neither a retry nor an HTTP
+        // status is possible. Destroying the upstream does not emit the 'end'
+        // that pipe() forwards, so close the client here or it waits on a
+        // dead tunnel forever.
+        log(`CONNECT ${req.url} tunnel closed: ${err.message}`);
+        clientSocket.destroy();
+        upstream.destroy();
+        return;
+      }
       if (settled) return;
       settled = true;
-      if (failoverEnabled && !established && isUnreachable(err)) {
+      if (failoverEnabled && isUnreachable(err)) {
         breaker.trip(err.code || err.message);
         upstream.destroy();
         connectDirect(req, clientSocket, head);
@@ -468,6 +478,9 @@ export function createAuthRelay({
     // close also clears the connect timeout. Same window as a reset, so the
     // same code.
     upstream.once('close', () => {
+      // After establishment a clean close is the normal end of a tunnel, and
+      // pipe() has already ended the client gracefully.
+      if (established) return;
       fail(Object.assign(new Error('upstream closed before answering CONNECT'), { code: 'ECONNRESET' }));
     });
 

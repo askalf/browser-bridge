@@ -3,7 +3,7 @@
 # that wants to connect to a remote Chromium without running the browser
 # itself.
 #
-# Image size ~600MB — chromium itself + node:26-slim + puppeteer-extra
+# Image size ~600MB: chromium itself + node:26-slim + puppeteer-extra
 # stealth deps. We build under non-root `browser` so the running process
 # isn't privileged.
 # Digest-pinned (Scorecard Pinned-Dependencies); dependabot's docker ecosystem

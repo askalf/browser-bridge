@@ -450,6 +450,20 @@ function startHangUp() {
   });
 }
 
+/** Answers CONNECT with 200, then resets the tunnel: a remote that dies mid-stream. */
+function startResetAfterConnect() {
+  const server = net.createServer((socket) => {
+    socket.once('data', () => {
+      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      setTimeout(() => socket.resetAndDestroy(), 50);
+    });
+  });
+  const stop = trackSockets(server);
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ port: server.address().port, stop }));
+  });
+}
+
 async function withFailoverRelay({ upstreamPort, ...opts }, fn) {
   const server = createAuthRelay({
     host: '127.0.0.1',
@@ -552,6 +566,29 @@ test('failover - an upstream that closes before answering CONNECT falls back', a
   } finally {
     hangUp.stop();
     origin.stop();
+  }
+});
+
+test('relay - an upstream reset after the tunnel is up closes the client', async () => {
+  const upstream = await startResetAfterConnect();
+  const server = createAuthRelay({
+    host: '127.0.0.1', port: upstream.port, username: 'fleet', password: 's3cret', connectTimeoutMs: 5000,
+  });
+  const stop = trackSockets(server);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const res = await connectThroughRelay(server.address().port, 'example.com:443');
+    assert.equal(res.status, 200);
+    const extra = [];
+    res.socket.on('data', (c) => extra.push(c));
+    await new Promise((resolve, reject) => {
+      res.socket.once('close', resolve);
+      setTimeout(() => reject(new Error('client socket left open on a dead tunnel')), 2000).unref();
+    });
+    assert.equal(Buffer.concat(extra).toString(), '', 'no HTTP status written into the tunnel');
+  } finally {
+    stop();
+    upstream.stop();
   }
 });
 
