@@ -26,11 +26,17 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { GovernedBrowser } from './govern.mjs';
 import { captureFromHtml, captureFromBridge, bridgeEndpoint } from './capture.mjs';
 import { detect } from './detect.mjs';
-import { ReplayOracle, snapshot, diffSnapshots } from './oracle.mjs';
+import { ReplayOracle, snapshot, diffSnapshots, safeTitle, isWithheldLine } from './oracle.mjs';
 import { SessionRecorder, toCanonSkill } from './skill.mjs';
 
 const err = (text) => ({ isError: true, content: [{ type: 'text', text }] });
 const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+
+/** A replay's field changes with any title passed through safeTitle, so a
+ *  hostile <title> on either side never comes back verbatim. */
+const safeChanges = (changes, goldenUrl, currentUrl) => changes.map((c) => (c.field === 'title'
+  ? { ...c, golden: safeTitle(c.golden, goldenUrl), current: safeTitle(c.current, currentUrl) }
+  : c));
 
 /**
  * Build a picket MCP server. Returns { server, picket } — `server` is an
@@ -135,10 +141,8 @@ export function createPicketServer(opts = {}) {
       return err('Reading a live URL needs a CDP browser (set PICKET_CDP). Pass `html` to analyze markup inline without a browser.');
     }
 
-    const prevTask = picket.task;
-    if (task != null) picket.task = task;
     try {
-      const r = await picket.observe(input);
+      const r = await picket.observe(input, { task: task ?? undefined });
       if (record != null) recorders.get(record).observe(r.observation, { label: task });
       const d = r.detection;
       // counts + categories only — NEVER the withheld excerpts
@@ -158,8 +162,6 @@ export function createPicketServer(opts = {}) {
       };
     } catch (e) {
       return err(`observe failed: ${e.message}`);
-    } finally {
-      picket.task = prevTask;
     }
   });
 
@@ -261,7 +263,7 @@ export function createPicketServer(opts = {}) {
       // fingerprint metadata only — never the visible-text body (a visible
       // injection would otherwise leak here).
       const fingerprint = {
-        name, url: s.url, title: s.title, verdict: s.verdict, trifecta: s.trifecta,
+        name, url: s.url, title: safeTitle(s.title, s.url), verdict: s.verdict, trifecta: s.trifecta,
         textHash: s.textHash, nodeCount: s.nodeCount, visibleCount: s.visibleCount,
         hiddenCount: s.hiddenCount, capturedBy: s.capturedBy,
       };
@@ -295,7 +297,14 @@ export function createPicketServer(opts = {}) {
         .filter((f) => f.action === 'block' || f.action === 'quarantine')
         .map((f) => norm((observation.nodes.find((n) => n.id === f.nodeId) || {}).text))
         .filter(Boolean);
-      const leaks = (line) => { const n = norm(line); return !!n && withheld.some((w) => w.includes(n) || n.includes(w)); };
+      // Lines the GOLDEN withheld are filtered too: removedText comes from the
+      // golden, which keeps raw text, so a payload removed since would
+      // otherwise be handed straight back.
+      const golden = oracle.goldens.get(name);
+      const leaks = (line) => {
+        const n = norm(line);
+        return !!n && (isWithheldLine(golden, line) || withheld.some((w) => w.includes(n) || n.includes(w)));
+      };
       const safeAdded = diff.addedText.filter((l) => !leaks(l));
       const safeRemoved = diff.removedText.filter((l) => !leaks(l));
       const out = {
@@ -303,7 +312,7 @@ export function createPicketServer(opts = {}) {
         regressedToInjection: diff.regressedToInjection,
         verdictChanged: diff.verdictChanged,
         trifectaAppeared: diff.trifectaAppeared,
-        changes: diff.changes,
+        changes: safeChanges(diff.changes, golden.url, observation.url),
         addedText: safeAdded,
         removedText: safeRemoved,
         withheldLines: (diff.addedText.length - safeAdded.length) + (diff.removedText.length - safeRemoved.length),
@@ -391,7 +400,10 @@ export function createPicketServer(opts = {}) {
           .filter((f) => f.action === 'block' || f.action === 'quarantine')
           .map((f) => norm((observation.nodes.find((n) => n.id === f.nodeId) || {}).text))
           .filter(Boolean);
-        const leaks = (line) => { const n = norm(line); return !!n && withheld.some((w) => w.includes(n) || n.includes(w)); };
+        const leaks = (line) => {
+          const n = norm(line);
+          return !!n && (isWithheldLine(s.golden, line) || withheld.some((w) => w.includes(n) || n.includes(w)));
+        };
         report.push({
           type: 'observe', url: s.url, match: diff.match,
           regressedToInjection: diff.regressedToInjection, verdictChanged: diff.verdictChanged,

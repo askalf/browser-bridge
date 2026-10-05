@@ -166,12 +166,29 @@ export function analyzeNode(node, ctx) {
 const SPLIT_WINDOW_NODES = 5;
 const SPLIT_WINDOW_CHARS = 800;
 
+// Second-level labels that ccTLDs register under (acme.co.uk, acme.com.au).
+// Not the full public-suffix list: an unlisted suffix errs toward a SHORTER
+// root when the label is missing, so add any that a deployment needs.
+const CC_SECOND_LEVEL = new Set([
+  'co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'ne', 'or', 'go', 'gob', 'mil', 'ltd', 'plc', 'sch', 'nic', 'nom',
+]);
+
+/** The page's registrable domain: acme.example, or acme.co.uk (never co.uk). */
+function registrableRoot(host) {
+  const labels = host.split('.');
+  const n = labels.length >= 3 && labels[labels.length - 1].length === 2
+    && CC_SECOND_LEVEL.has(labels[labels.length - 2]) ? 3 : 2;
+  return labels.slice(-n).join('.');
+}
+
 /** An email whose domain is NOT under the page's own registrable domain. */
 function hasOffOriginEmail(text, ctx) {
   const emails = extractEmails(text);
   if (emails.length === 0) return false;
   if (!ctx.originHost) return true;
-  const root = ctx.originHost.split('.').slice(-2).join('.');
+  // Taking the last two labels made every *.co.uk address "same origin" on a
+  // .co.uk page, so a split exfil to drop@evil.co.uk went unredacted.
+  const root = registrableRoot(ctx.originHost);
   return emails.some((e) => {
     const dom = (e.split('@')[1] || '').toLowerCase();
     return dom && dom !== root && !dom.endsWith('.' + root);

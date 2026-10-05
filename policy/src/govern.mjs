@@ -90,9 +90,15 @@ export class GovernedBrowser {
    * Perception plane. Accepts static HTML, a live bridge target, or a
    * caller-owned `page` (a broker checkout, an agent's active session), runs
    * it through the firewall, and returns the safe, model-facing view.
+   * @param {{task?: string}} [opts]  per-call trusted task (defaults to the instance's)
    * @returns {Promise<{observation, detection, decision, safe}>}
    */
-  async observe(input) {
+  async observe(input, opts = {}) {
+    // A per-call task wins over the instance default. Callers sharing one
+    // GovernedBrowser (the MCP server serves every session from one) pass it
+    // here instead of mutating this.task, which raced across awaits and let
+    // one caller's task show up in another's safe view.
+    const task = opts.task ?? this.task;
     // Prefer the live CDP bridge whenever one is reachable — even for inline
     // `html`, which captureFromBridge renders via page.setContent so real
     // computed styles resolve class-based hiding. The static parser is the
@@ -112,12 +118,12 @@ export class GovernedBrowser {
     let escalation = null;
     let detection = deterministic;
     if (this.judge) {
-      escalation = await this.judge.review(observation, deterministic, { url: observation.url, task: this.task });
+      escalation = await this.judge.review(observation, deterministic, { url: observation.url, task });
       if (escalation.escalations.length) detection = applyEscalations(deterministic, escalation.escalations, observation);
     }
 
     const decision = await this.policy.decide(detection, { url: observation.url });
-    const safe = buildSafeObservation(observation, detection, { task: this.task });
+    const safe = buildSafeObservation(observation, detection, { task });
     this._log({
       plane: 'perception', url: observation.url, verdict: detection.verdict,
       decision: decision.action, redactions: safe.redactions.length,

@@ -21,6 +21,10 @@
  *     set one whenever the server is reachable beyond localhost
  *   - withheld excerpts never cross the wire — that guarantee lives in
  *     src/mcp.mjs and is transport-independent
+ *   - request bodies are capped (maxBodyBytes, 413), sessions are capped
+ *     (maxSessions, 503 on a new initialize), and a session with no request in
+ *     flight for sessionIdleMs is closed, so a client that never sends DELETE
+ *     cannot hold one forever
  */
 
 import { createServer } from 'node:http';
@@ -45,6 +49,32 @@ function sendJson(res, status, body) {
 
 const rpcError = (code, message) => ({ jsonrpc: '2.0', error: { code, message }, id: null });
 
+const TOO_LARGE = Symbol('too large');
+const BAD_JSON = Symbol('bad json');
+
+/** Read a request body up to `max` bytes and parse it as JSON. The SDK would
+ *  otherwise buffer a body of any size before looking at it. */
+function readJsonBody(req, max) {
+  return new Promise((resolve) => {
+    if (Number(req.headers['content-length']) > max) { resolve(TOO_LARGE); return; }
+    const chunks = [];
+    let size = 0;
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    req.on('data', (c) => {
+      if (done) return;
+      size += c.length;
+      if (size > max) { finish(TOO_LARGE); req.resume(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8');
+      try { finish(raw ? JSON.parse(raw) : undefined); } catch { finish(BAD_JSON); }
+    });
+    req.on('error', () => finish(BAD_JSON));
+  });
+}
+
 /**
  * Start the picket MCP server over Streamable HTTP.
  *
@@ -56,6 +86,9 @@ const rpcError = (code, message) => ({ jsonrpc: '2.0', error: { code, message },
  *   carry `Authorization: Bearer <token>` (also PICKET_MCP_TOKEN)
  * @param {string[]} [opts.allowedHosts] extra Host-header values to accept
  *   (DNS-rebinding allowlist); loopback forms for the bound port are automatic
+ * @param {number} [opts.maxBodyBytes] largest accepted request body (default 4 MB)
+ * @param {number} [opts.maxSessions] concurrent session cap (default 100)
+ * @param {number} [opts.sessionIdleMs] close a session idle this long (default 30 min)
  * @returns {Promise<{ url, port, picket, sessionCount, close }>}
  */
 export async function startPicketHttpServer(opts = {}) {
@@ -90,8 +123,31 @@ export async function startPicketHttpServer(opts = {}) {
     keeper: opts.keeper,
   });
 
-  const sessions = new Map(); // sessionId → { transport, server }
+  const maxBodyBytes = opts.maxBodyBytes ?? 4 * 1024 * 1024;
+  const maxSessions = opts.maxSessions ?? 100;
+  const sessionIdleMs = opts.sessionIdleMs ?? 30 * 60 * 1000;
+
+  const sessions = new Map(); // sessionId → { transport, server, inFlight, lastSeen }
   let rebindingHosts = []; // filled in once the port is known
+
+  // A request counts until its RESPONSE closes: handleRequest returns while a
+  // GET stream (or a POST answered as SSE) is still open.
+  const handle = (session, req, res, body) => {
+    session.inFlight++;
+    session.lastSeen = Date.now();
+    return new Promise((resolve, reject) => {
+      res.once('close', resolve);
+      session.transport.handleRequest(req, res, body).catch(reject);
+    }).finally(() => { session.inFlight--; session.lastSeen = Date.now(); });
+  };
+
+  const sweep = setInterval(() => {
+    const now = Date.now();
+    for (const s of [...sessions.values()]) {
+      if (s.inFlight === 0 && now - s.lastSeen > sessionIdleMs) s.transport.close().catch(() => {});
+    }
+  }, Math.min(sessionIdleMs, 60000));
+  sweep.unref();
 
   const httpServer = createServer(async (req, res) => {
     try {
@@ -112,31 +168,45 @@ export async function startPicketHttpServer(opts = {}) {
         }
       }
 
+      let body;
+      if (req.method === 'POST') {
+        body = await readJsonBody(req, maxBodyBytes);
+        if (body === TOO_LARGE) {
+          res.setHeader('connection', 'close');
+          return sendJson(res, 413, rpcError(-32600, `request body exceeds ${maxBodyBytes} bytes`));
+        }
+        if (body === BAD_JSON) return sendJson(res, 400, rpcError(-32700, 'parse error: body is not valid JSON'));
+      }
+
       const sessionId = req.headers['mcp-session-id'];
       if (sessionId) {
         const session = sessions.get(sessionId);
         if (!session) return sendJson(res, 404, rpcError(-32001, 'unknown or expired session'));
-        return session.transport.handleRequest(req, res);
+        return await handle(session, req, res, body);
       }
 
       // No session header: only an initialize POST may open a new session.
       if (req.method !== 'POST') {
-        return sendJson(res, 400, rpcError(-32000, 'no session — POST an initialize request first'));
+        return sendJson(res, 400, rpcError(-32000, 'no session: POST an initialize request first'));
+      }
+      if (sessions.size >= maxSessions) {
+        return sendJson(res, 503, rpcError(-32000, `session limit (${maxSessions}) reached: end an idle session with DELETE`));
       }
 
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         enableDnsRebindingProtection: rebindingHosts.length > 0,
         allowedHosts: rebindingHosts,
-        onsessioninitialized: (sid) => { sessions.set(sid, { transport, server }); },
+        onsessioninitialized: (sid) => { sessions.set(sid, entry); },
         onsessionclosed: (sid) => { sessions.delete(sid); },
       });
       transport.onclose = () => {
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
       const { server } = createPicketServer({ ...opts, picket });
+      const entry = { transport, server, inFlight: 0, lastSeen: Date.now() };
       await server.connect(transport);
-      return transport.handleRequest(req, res);
+      return await handle(entry, req, res, body);
       // A non-initialize body lands here too — the transport itself rejects it
       // with 400 per spec, so there's no session-fixation path around initialize.
     } catch (e) {
@@ -160,11 +230,13 @@ export async function startPicketHttpServer(opts = {}) {
     : [...(opts.allowedHosts || [])];
 
   return {
-    url: `http://${LOOPBACK.has(host) ? '127.0.0.1' : host}:${boundPort}${path}`,
+    // The address actually bound: an IPv6 loopback bind does not answer on 127.0.0.1.
+    url: `http://${host === '::1' || host === '0:0:0:0:0:0:0:1' ? '[::1]' : LOOPBACK.has(host) ? '127.0.0.1' : host.includes(':') ? `[${host}]` : host}:${boundPort}${path}`,
     port: boundPort,
     picket,
     sessionCount: () => sessions.size,
     close: async () => {
+      clearInterval(sweep);
       for (const { transport } of sessions.values()) await transport.close().catch(() => {});
       sessions.clear();
       await new Promise((resolve) => httpServer.close(resolve));

@@ -27,6 +27,24 @@ All notable changes to `@askalf/fieldpass` are documented here.
   `?token=` of `PICKET_CDP`.
 - `makeDarioBackend` and `resolveJudge` are exported from the package root,
   as the README already said.
+- Concurrent `picket_observe` calls no longer share the trusted task. It
+  was set on the one GovernedBrowser every MCP session uses and restored
+  after an await, so one caller's task could appear in another's safe view
+  and become the default for later calls. `observe(input, { task })` now
+  takes it per call.
+- A page `<title>` that trips the firewall no longer comes back verbatim from
+  `picket_snapshot`, `picket_replay` field changes, or a `redactText` skill
+  manifest; it is shown as `[picket: title withheld #<hash>]`.
+- `picket_replay` and `picket_skill_replay` no longer return, in
+  `removedText`, a payload the golden had withheld. Goldens now record hashes
+  of their withheld lines (`withheld`) so the diff can filter them; the raw
+  text stays in the golden for canon to scan.
+- The split-trifecta detector takes `acme.co.uk` (not `co.uk`) as the page's
+  domain, so an exfil address at another `.co.uk` domain is off-origin.
+- The Streamable HTTP server caps request bodies (`maxBodyBytes`, default
+  4 MB, `413`) and sessions (`maxSessions`, default 100, `503`), closes
+  sessions idle for `sessionIdleMs` (default 30 min), and advertises
+  `http://[::1]:<port>` for an IPv6 loopback bind.
 - Docs: the `bin/picket-mcp.mjs` sample config starts the MCP server
   (`-p @askalf/fieldpass fieldpass-mcp`), README names the real bin files,
   and CONTRIBUTING points at `master` and the real CI job names.
