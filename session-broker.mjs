@@ -101,6 +101,12 @@ export function createSessionBroker({
     sessions.set(key, rec);
     rec.launching = (async () => {
       const b = await launch(key, { onExit: () => exited(key, rec) });
+      if (rec.exitedDuringLaunch) {
+        // The browser died before its endpoint was published: fail the launch
+        // (every coalesced acquirer sees it) rather than route to a dead port.
+        try { await b.close(); } catch { /* already gone */ }
+        throw new Error(`browser-bridge: session '${key}' browser exited during launch`);
+      }
       const { internalPort, wsPath } = parseWs(b.wsEndpoint);
       rec.internalPort = internalPort;
       rec.wsPath = wsPath;
@@ -138,7 +144,8 @@ export function createSessionBroker({
   // clean up what the launcher left behind (the profile directory). Ignored
   // once the record has been replaced or disposed through dispose().
   function exited(key, rec) {
-    if (sessions.get(key) !== rec || rec.launching) return;
+    if (sessions.get(key) !== rec) return;
+    if (rec.launching) { rec.exitedDuringLaunch = true; return; } // acquire() fails the launch
     log(`session '${key}' browser exited`);
     dispose(key).catch(() => {});
   }

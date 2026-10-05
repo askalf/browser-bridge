@@ -14,12 +14,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** A stub launcher: unique internal port per launch, records closes. */
 function stubLauncher() {
-  const state = { launches: 0, closes: 0, closedKeys: [], failNext: false, delayMs: 0 };
+  const state = { launches: 0, closes: 0, closedKeys: [], failNext: false, delayMs: 0, exitDuringLaunch: false };
   const launch = async (key, { onExit } = {}) => {
     if (state.delayMs) await sleep(state.delayMs);
     if (state.failNext) { state.failNext = false; throw new Error('launch failed'); }
     state.launches++;
     state.exit = onExit;
+    if (state.exitDuringLaunch) { state.exitDuringLaunch = false; onExit(); }
     const port = 40000 + state.launches;
     return {
       wsEndpoint: `ws://127.0.0.1:${port}/devtools/browser/uuid-${state.launches}`,
@@ -163,6 +164,21 @@ test('a browser that exits on its own is forgotten, so the next connect relaunch
   h.release(); // the old socket closing afterwards is harmless
   const again = await broker.acquire('named', false);
   assert.equal(again.internalPort, 40002, 'a fresh browser, not the dead port');
+  await broker.disposeAll();
+});
+
+test('a browser that exits before its launch resolves is not published', async () => {
+  const { launch, state } = stubLauncher();
+  state.delayMs = 10;
+  const broker = createSessionBroker({ launch, maxSessions: 1 });
+  state.exitDuringLaunch = true;
+  const results = await Promise.allSettled([broker.acquire('k', false), broker.acquire('k', false)]);
+  assert.deepEqual(results.map((r) => r.status), ['rejected', 'rejected'], 'every coalesced acquirer sees the failure');
+  assert.match(results[0].reason.message, /exited during launch/);
+  assert.equal(broker.stats().sessionsActive, 0, 'the slot is freed');
+  assert.deepEqual(state.closedKeys, ['k'], 'the launcher\'s resources are released');
+  const again = await broker.acquire('k', false);
+  assert.equal(again.internalPort, 40002, 'the next acquire launches a fresh browser');
   await broker.disposeAll();
 });
 
