@@ -1,7 +1,11 @@
 version: 2
 updates:
   - package-ecosystem: docker
-    directory: /
+    # The fuzz build image pins its base by digest and relies on this entry
+    # to keep the pin fresh (see .clusterfuzzlite/Dockerfile).
+    directories:
+      - /
+      - /.clusterfuzzlite
     schedule:
       interval: weekly
       day: monday
@@ -28,6 +32,19 @@ updates:
       - dependency-name: puppeteer-extra-plugin-user-data-dir
         versions:
           - '>=2.4.0'
+  # @askalf/fieldpass, published from policy/ with its own lockfile. Without
+  # this entry it only got security updates and drifted behind the root.
+  - package-ecosystem: npm
+    directory: /policy
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      non-major:
+        update-types:
+          - patch
+          - minor
   - package-ecosystem: github-actions
     directory: /
     schedule:

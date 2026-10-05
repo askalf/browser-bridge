@@ -16,7 +16,7 @@ remote browser without bundling one. Part of
 
 browser-bridge ships as a Docker image; the Node.js code (`launch.mjs`,
 `cdp-proxy.mjs`, `session-broker.mjs`, the MCP server) is the runtime. You need
-Node.js **22+** to run the unit tests, and Docker to build and boot the image.
+Node.js **22.12+** to run the unit tests, and Docker to build and boot the image.
 
 ```bash
 git clone https://github.com/askalf/browser-bridge.git
