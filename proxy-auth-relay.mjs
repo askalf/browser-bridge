@@ -469,6 +469,10 @@ export function createAuthRelay({
       if (failoverEnabled && isUnreachable(err)) {
         breaker.trip(err.code || err.message);
         upstream.destroy();
+        // The direct tunnel owns the client from here; this attempt's
+        // listeners would otherwise treat its half-close as abandonment.
+        clientSocket.off('end', clientLeft);
+        clientSocket.off('close', onClientClose);
         connectDirect(req, clientSocket, head);
         return;
       }
@@ -492,11 +496,12 @@ export function createAuthRelay({
       upstream.destroy();
       clientSocket.destroy(); // a half-open socket would otherwise stay open
     };
-    clientSocket.once('end', clientLeft);
-    clientSocket.once('close', (hadError) => {
+    const onClientClose = (hadError) => {
       if (!established) { clientLeft(); return; }
       if (hadError) upstream.destroy(); else upstream.end();
-    });
+    };
+    clientSocket.once('end', clientLeft);
+    clientSocket.once('close', onClientClose);
     // An upstream that accepts and then closes cleanly (a FIN, no error)
     // before answering would otherwise leave Chromium's tunnel hanging: the
     // close also clears the connect timeout. Same window as a reset, so the

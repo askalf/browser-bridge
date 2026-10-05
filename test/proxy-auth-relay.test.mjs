@@ -642,6 +642,36 @@ test('failover - a client that leaves before the upstream answers is closed and 
   }
 });
 
+test('failover - a client half-close on a fallback tunnel still gets the origin\'s reply', async () => {
+  // An origin that answers only after the client has finished sending.
+  const origin = net.createServer({ allowHalfOpen: true }, (socket) => {
+    let got = '';
+    socket.on('data', (c) => { got += c; });
+    socket.on('end', () => socket.end(`origin:${got}`));
+    socket.on('error', () => {});
+  });
+  const stopOrigin = trackSockets(origin);
+  await new Promise((r) => origin.listen(0, '127.0.0.1', r));
+  try {
+    await withFailoverRelay({ upstreamPort: 1 }, async ({ port }) => {
+      const res = await connectThroughRelay(port, `127.0.0.1:${origin.address().port}`);
+      assert.equal(res.status, 200, 'fell back to a direct tunnel');
+      const reply = await new Promise((resolve, reject) => {
+        let buf = '';
+        res.socket.removeAllListeners('data');
+        res.socket.on('data', (c) => { buf += c; });
+        res.socket.on('close', () => resolve(buf));
+        res.socket.on('error', reject);
+        res.socket.write('hello');
+        res.socket.end(); // half-close: done sending, still listening
+      });
+      assert.equal(reply, 'origin:hello');
+    });
+  } finally {
+    stopOrigin();
+  }
+});
+
 test('failover — a 407 is NOT failed over: the upstream answered', async () => {
   // The safety property. Wrong credentials must surface as wrong credentials,
   // not quietly relocate the browser to the datacenter exit.
