@@ -187,3 +187,10 @@ test('picket_skill_replay does not hand back a payload the recording had withhel
   assert.match(out, /"removedText":\[\]/, 'the removed payload is filtered');
   assert.doesNotMatch(out, /session cookie|evil\.example/);
 });
+
+test('the package root exports the judge wiring the README documents', async () => {
+  const root = await import('../src/index.mjs');
+  for (const name of ['makeDarioBackend', 'makeClaudeBackend', 'resolveJudge', 'LLMJudge', 'GovernedBrowser']) {
+    assert.equal(typeof root[name], 'function', name);
+  }
+});

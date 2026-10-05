@@ -619,6 +619,25 @@ test('relay - a client reset on an established tunnel closes the upstream', asyn
   }
 });
 
+test('failover - a client that leaves before the upstream answers does not trip the breaker', async () => {
+  const blackHole = await startBlackHole();
+  try {
+    await withFailoverRelay({ upstreamPort: blackHole.port, connectTimeoutMs: 200 }, async ({ server, port }) => {
+      await new Promise((resolve) => {
+        const s = net.connect(port, '127.0.0.1', () => {
+          s.write('CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n');
+          setTimeout(() => { s.destroy(); resolve(); }, 50);
+        });
+        s.on('error', () => {});
+      });
+      await new Promise((r) => setTimeout(r, 400)); // past the connect timeout
+      assert.equal(server.egressStatus(), 'upstream', 'a departed client says nothing about the upstream');
+    });
+  } finally {
+    blackHole.stop();
+  }
+});
+
 test('failover — a 407 is NOT failed over: the upstream answered', async () => {
   // The safety property. Wrong credentials must surface as wrong credentials,
   // not quietly relocate the browser to the datacenter exit.

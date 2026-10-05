@@ -143,3 +143,20 @@ export function exitOnListenFailure(server, name, { exit = (code) => process.exi
     if (!server.listening) exit(1);
   });
 }
+
+/**
+ * The stealth battery's pass floor from BRIDGE_STEALTH_FLOOR: unset or empty
+ * means `total - 1`, otherwise a non-negative integer (0 is a valid floor).
+ * Anything else throws: parseInt would turn `abc` into NaN, and
+ * `passed < NaN` is never true, so the gate would silently never fail.
+ *
+ * @param {string|undefined} raw
+ * @param {number} total  number of checks in the battery
+ * @returns {number}
+ */
+export function parseStealthFloor(raw, total) {
+  const v = (raw ?? '').trim();
+  if (v === '') return total - 1;
+  if (!/^\d+$/.test(v)) throw new Error(`BRIDGE_STEALTH_FLOOR must be a non-negative integer, got ${JSON.stringify(raw)}`);
+  return Number(v);
+}

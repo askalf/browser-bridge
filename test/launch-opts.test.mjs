@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher, exitOnListenFailure } from '../launch-opts.mjs';
+import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher, exitOnListenFailure, parseStealthFloor } from '../launch-opts.mjs';
 
 const base = {
   chromePath: '/usr/bin/chromium',
@@ -172,4 +172,19 @@ test('exitOnListenFailure: the default exit ends the process with status 1', asy
   `;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { timeout: 10000 });
   assert.equal(r.status, 1, `expected exit 1, got ${r.status} (${r.stderr})`);
+});
+
+test('parseStealthFloor: default when unset, 0 and positive integers accepted', () => {
+  assert.equal(parseStealthFloor(undefined, 8), 7);
+  assert.equal(parseStealthFloor('', 8), 7);
+  assert.equal(parseStealthFloor(' 0 ', 8), 0);
+  assert.equal(parseStealthFloor('6', 8), 6);
+});
+
+test('parseStealthFloor: rejects values parseInt would turn into a gate that never fails', () => {
+  for (const bad of ['abc', '8s', '1.5', '-1', '1e3']) {
+    assert.throws(() => parseStealthFloor(bad, 8), /BRIDGE_STEALTH_FLOOR must be a non-negative integer/, bad);
+  }
+  // The failure being prevented: with parseInt, `abc` gave NaN and no score fell below it.
+  assert.equal(3 < parseInt('abc', 10), false);
 });

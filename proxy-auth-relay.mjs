@@ -483,9 +483,17 @@ export function createAuthRelay({
     // The other direction: pipe() forwards the client's clean end but not a
     // reset, and an established upstream has no timeout, so a reset would
     // leave it open until the far end closed it.
+    // Before the tunnel is up, a client FIN shows only as 'end' (the
+    // server's sockets allow half-open), so both events count as leaving.
     let clientGone = false;
+    const clientLeft = () => {
+      if (established || clientGone) return;
+      clientGone = true;
+      upstream.destroy();
+    };
+    clientSocket.once('end', clientLeft);
     clientSocket.once('close', (hadError) => {
-      if (!established) { clientGone = true; upstream.destroy(); return; }
+      if (!established) { clientLeft(); return; }
       if (hadError) upstream.destroy(); else upstream.end();
     });
     // An upstream that accepts and then closes cleanly (a FIN, no error)
