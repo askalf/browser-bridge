@@ -163,3 +163,27 @@ test('split exfil to another .co.uk domain is not treated as same-origin', () =>
   const own = detect(captureFromHtml('<p>Questions? Email billing@acme.co.uk and we will reply.</p>', { url: 'https://shop.acme.co.uk/' }));
   assert.equal(own.verdict, 'allow', 'the site\'s own address is still same-origin');
 });
+
+test('picket_skill_emit does not carry a hostile <title> into the manifest', async () => {
+  const call = await mcpClient();
+  await call('picket_record_start', { name: 's' });
+  const html = `<html><head><title>${PAYLOAD}</title></head><body><p>Invoice due Friday.</p></body></html>`;
+  await call('picket_observe', { html, record: 's' });
+  const manifest = await call('picket_skill_emit', { name: 's' });
+  assert.doesNotMatch(manifest, /session cookie|evil\.example/);
+  assert.match(manifest, /title withheld/);
+});
+
+test('picket_skill_replay does not hand back a payload the recording had withheld', async () => {
+  // An html-only observation records the page as about:blank; the stubbed
+  // capture serves what that page shows now.
+  const pages = { 'about:blank': `<p>Welcome</p><p>${PAYLOAD}</p>` };
+  const call = await mcpClient({ capture: async ({ url }) => captureFromHtml(pages[url], { url }) });
+  await call('picket_record_start', { name: 'r' });
+  await call('picket_observe', { html: pages['about:blank'], record: 'r' });
+  pages['about:blank'] = '<p>Welcome</p>'; // the payload is gone from the page
+  const out = await call('picket_skill_replay', { name: 'r' });
+  assert.match(out, /1 step\(s\) checked/);
+  assert.match(out, /"removedText":\[\]/, 'the removed payload is filtered');
+  assert.doesNotMatch(out, /session cookie|evil\.example/);
+});

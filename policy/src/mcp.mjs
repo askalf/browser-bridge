@@ -48,6 +48,8 @@ const safeChanges = (changes, goldenUrl, currentUrl) => changes.map((c) => (c.fi
  * @param {string}   [opts.task]       default trusted task fenced into the safe view
  * @param {*}        [opts.judge]      "dario" | "claude" | an LLMJudge | null (also PICKET_JUDGE)
  * @param {string}   [opts.cdp]        CDP base for live URL fetches (also PICKET_CDP)
+ * @param {Function} [opts.capture]    async ({url, html}) => Observation; replaces the CDP /
+ *   static capture used by the oracle and skill-replay tools (a custom backend, or tests)
  * @param {*}        [opts.keeper]     KeeperStub (or real keeper) for login()
  * @param {GovernedBrowser} [opts.picket]  share an existing browser instead of
  *   building one — the HTTP transport passes one browser to every session so
@@ -97,6 +99,9 @@ export function createPicketServer(opts = {}) {
    */
   async function captureObs(url, html) {
     if (!url && html == null) return { error: 'needs either `url` or `html`.' };
+    if (opts.capture) {
+      try { return { observation: await opts.capture({ url, html }) }; } catch (e) { return { error: `capture failed: ${e.message}` }; }
+    }
     if (cdp) {
       try {
         const browserWSEndpoint = await bridgeEndpoint(cdp);
