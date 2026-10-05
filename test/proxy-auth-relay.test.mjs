@@ -619,18 +619,22 @@ test('relay - a client reset on an established tunnel closes the upstream', asyn
   }
 });
 
-test('failover - a client that leaves before the upstream answers does not trip the breaker', async () => {
+test('failover - a client that leaves before the upstream answers is closed and does not trip the breaker', async () => {
   const blackHole = await startBlackHole();
   try {
-    await withFailoverRelay({ upstreamPort: blackHole.port, connectTimeoutMs: 200 }, async ({ server, port }) => {
-      await new Promise((resolve) => {
+    await withFailoverRelay({ upstreamPort: blackHole.port, connectTimeoutMs: 2000 }, async ({ server, port }) => {
+      const started = Date.now();
+      await new Promise((resolve, reject) => {
         const s = net.connect(port, '127.0.0.1', () => {
           s.write('CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n');
-          setTimeout(() => { s.destroy(); resolve(); }, 50);
+          setTimeout(() => s.end(), 50); // a clean FIN: the relay sees only 'end'
         });
         s.on('error', () => {});
+        s.on('close', resolve);
+        setTimeout(() => reject(new Error('relay left the abandoned client socket open')), 1000).unref();
       });
-      await new Promise((r) => setTimeout(r, 400)); // past the connect timeout
+      assert.ok(Date.now() - started < 1000, 'closed well before the upstream timeout');
+      await new Promise((r) => setTimeout(r, 2200)); // past the connect timeout
       assert.equal(server.egressStatus(), 'upstream', 'a departed client says nothing about the upstream');
     });
   } finally {

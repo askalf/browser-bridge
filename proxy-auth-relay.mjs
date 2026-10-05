@@ -490,6 +490,7 @@ export function createAuthRelay({
       if (established || clientGone) return;
       clientGone = true;
       upstream.destroy();
+      clientSocket.destroy(); // a half-open socket would otherwise stay open
     };
     clientSocket.once('end', clientLeft);
     clientSocket.once('close', (hadError) => {
