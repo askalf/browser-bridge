@@ -97,7 +97,10 @@ export function createSessionBroker({
 
     // Reserve the slot BEFORE the async launch so the cap counts in-flight
     // launches and concurrent acquisitions of the same key coalesce.
-    const rec = { refs: 1, lastUsed: Date.now(), ephemeral, launching: null };
+    // starting is true from before launch() is called until the endpoint is
+    // published or the launch fails, so an exit reported at any point in
+    // between (even synchronously, from inside launch()) fails the launch.
+    const rec = { refs: 1, lastUsed: Date.now(), ephemeral, launching: null, starting: true };
     sessions.set(key, rec);
     rec.launching = (async () => {
       const b = await launch(key, { onExit: () => exited(key, rec) });
@@ -119,6 +122,8 @@ export function createSessionBroker({
       sessions.delete(key);
       onEvent('session-launch-failed');
       throw err;
+    } finally {
+      rec.starting = false;
     }
     rec.launching = null;
     created++;
@@ -145,7 +150,7 @@ export function createSessionBroker({
   // once the record has been replaced or disposed through dispose().
   function exited(key, rec) {
     if (sessions.get(key) !== rec) return;
-    if (rec.launching) { rec.exitedDuringLaunch = true; return; } // acquire() fails the launch
+    if (rec.starting) { rec.exitedDuringLaunch = true; return; } // acquire() fails the launch
     log(`session '${key}' browser exited`);
     dispose(key).catch(() => {});
   }

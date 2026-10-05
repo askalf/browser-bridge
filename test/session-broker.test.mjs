@@ -182,6 +182,18 @@ test('a browser that exits before its launch resolves is not published', async (
   await broker.disposeAll();
 });
 
+test('an exit reported synchronously from inside launch() is not published either', async () => {
+  const { launch, state } = stubLauncher(); // no delay: onExit runs before launch() returns
+  const broker = createSessionBroker({ launch, maxSessions: 1 });
+  state.exitDuringLaunch = true;
+  await assert.rejects(() => broker.acquire('k', false), /exited during launch/);
+  assert.equal(broker.stats().sessionsActive, 0, 'the slot is freed');
+  assert.deepEqual(state.closedKeys, ['k'], 'the launcher\'s resources are released');
+  const again = await broker.acquire('k', false);
+  assert.equal(again.internalPort, 40002);
+  await broker.disposeAll();
+});
+
 test('an exit fired by the broker disposing the session is a no-op', async () => {
   const { launch, state } = stubLauncher();
   const broker = createSessionBroker({ launch });
