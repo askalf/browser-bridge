@@ -32,8 +32,7 @@ updates:
       - dependency-name: puppeteer-extra-plugin-user-data-dir
         versions:
           - '>=2.4.0'
-  # @askalf/fieldpass, published from policy/ with its own lockfile. Without
-  # this entry it only got security updates and drifted behind the root.
+  # @askalf/fieldpass, published from policy/ with its own lockfile.
   - package-ecosystem: npm
     directory: /policy
     schedule:
