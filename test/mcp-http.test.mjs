@@ -131,3 +131,34 @@ test('an upload abandoned mid-body does not pin its session', async () => {
     assert.equal(mcp.sessionCount(), 0, 'the idle sweep still reclaims the session');
   });
 });
+
+test('a browser connection that finishes after its session closed is disposed', async () => {
+  let finishConnect;
+  let disposed = 0;
+  const connect = () => new Promise((resolve) => {
+    finishConnect = () => resolve({ page: {}, consoleBuffer: [], dispose: async () => { disposed++; } });
+  });
+  await withServer({ connect, sessionIdleMs: 50 }, async ({ mcp, port }) => {
+    const init = await post(port, INIT);
+    const sid = init.headers.get('mcp-session-id');
+    await init.body?.cancel();
+    const headers = { 'mcp-session-id': sid, 'mcp-protocol-version': '2025-06-18' };
+    await post(port, { jsonrpc: '2.0', method: 'notifications/initialized' }, headers).then((r) => r.body?.cancel());
+    // The first tool call starts the (slow) connect; the client then goes away.
+    const ac = new AbortController();
+    const call = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST', signal: ac.signal,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...headers },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'browser_navigate', arguments: { url: 'https://example.com/' } } }),
+    }).catch(() => {});
+    for (let i = 0; i < 40 && !finishConnect; i++) await sleep(10);
+    assert.ok(finishConnect, 'the tool call started a connect');
+    ac.abort();
+    await call;
+    for (let i = 0; i < 60 && mcp.sessionCount() > 0; i++) await sleep(25);
+    assert.equal(mcp.sessionCount(), 0, 'the idle sweep removed the session');
+    finishConnect();
+    for (let i = 0; i < 20 && disposed === 0; i++) await sleep(10);
+    assert.equal(disposed, 1, 'the late connection was disposed, not leaked');
+  });
+});

@@ -103,12 +103,22 @@ export function buildSessionServer(rec, connect, log) {
 
   // Lazily open the bridge connection on first tool use, so an MCP session that
   // only initializes never launches a browser.
+  // A connection that finishes after the session has closed is disposed
+  // rather than published, since nothing would ever dispose it later.
   rec.resolve = async () => {
+    if (rec.closed) throw new Error('mcp session closed');
     if (rec.browser) return rec.browser;
     if (!rec.connecting) {
       rec.connecting = Promise.resolve(connect(`mcp-${rec.id ?? 'pending'}`))
-        .then((b) => { rec.browser = b; rec.connecting = null; return b; })
-        .catch((e) => { rec.connecting = null; throw e; });
+        .then(async (b) => {
+          rec.connecting = null;
+          if (rec.closed) {
+            try { await b.dispose(); } catch { /* gone */ }
+            throw new Error('mcp session closed');
+          }
+          rec.browser = b;
+          return b;
+        }, (e) => { rec.connecting = null; throw e; });
     }
     return rec.connecting;
   };
@@ -369,6 +379,7 @@ export function createMcpBridgeServer({
     (Array.isArray(body) ? body : [body]).some((m) => m && m.method === 'initialize');
 
   async function cleanup(rec) {
+    rec.closed = true; // a connect still in flight disposes its own result
     if (rec.id) sessions.delete(rec.id);
     if (rec.browser) { try { await rec.browser.dispose(); } catch { /* gone */ } rec.browser = null; }
   }
