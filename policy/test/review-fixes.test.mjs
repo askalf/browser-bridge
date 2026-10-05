@@ -99,8 +99,8 @@ test('an unreachable CDP endpoint is reported without its token', async () => {
 test('concurrent observes through one MCP server keep their own trusted task', async () => {
   let delayed = 0;
   const backend = async ({ candidates, ctx }) => {
-    // B is still in flight when A resumes: the window where a shared,
-    // mutated task leaked B's into A's view and left A's as the default.
+    // B is still in flight when A resumes. Each call must see only its own
+    // task, and the server's default must be unchanged afterwards.
     const ms = { 'TASK-A': 30, 'TASK-B': 80 }[ctx && ctx.task];
     if (ms) { delayed++; await new Promise((r) => setTimeout(r, ms)); }
     return candidates.map((c) => ({ id: c.id, injection: false }));

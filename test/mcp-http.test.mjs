@@ -90,3 +90,27 @@ test('an open GET stream keeps its session alive past the idle window', async ()
     assert.equal(mcp.sessionCount(), 0, 'reclaimed once the stream closes and the window passes');
   });
 });
+
+test('a POST still uploading when the idle window passes keeps its session', async () => {
+  await withServer({ sessionIdleMs: 50 }, async ({ mcp, port }) => {
+    const init = await post(port, INIT);
+    const sid = init.headers.get('mcp-session-id');
+    await init.body?.cancel();
+    const http = await import('node:http');
+    const status = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1', port, path: '/mcp', method: 'POST',
+        headers: {
+          'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
+          'mcp-session-id': sid, 'mcp-protocol-version': '2025-06-18',
+        },
+      }, (res) => { res.resume(); resolve(res.statusCode); });
+      req.on('error', reject);
+      const body = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+      req.write(body.slice(0, 10)); // the request has started...
+      setTimeout(() => req.end(body.slice(10)), 250); // ...and finishes well past the idle window
+    });
+    assert.equal(status, 200, 'the session was not expired mid-upload');
+    assert.equal(mcp.sessionCount(), 1);
+  });
+});

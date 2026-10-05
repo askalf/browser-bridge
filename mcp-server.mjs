@@ -323,18 +323,26 @@ export function createMcpBridgeServer({
     req.on('error', () => resolve(null));
   });
 
+  const tooLarge = (res) => {
+    res.writeHead(413, { 'Content-Type': 'application/json', Connection: 'close' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32600, message: `Request body exceeds ${maxBodyBytes} bytes.` }, id: null }));
+  };
+
   // Run one request against a session, tracking it as in flight so the idle
   // sweep never closes a session mid-request or under an open GET stream.
-  // handleRequest can return while the response is still streaming (a GET
-  // listener, or a POST answered as SSE), so a request counts until its
-  // response closes.
+  // The request counts from before its body is read (a slow upload is still
+  // a request) until its response closes, since handleRequest can return
+  // while the response is still streaming (a GET listener, or a POST
+  // answered as SSE). `body` is the parsed body or a function that reads it.
   const handle = async (rec, req, res, body) => {
     rec.inFlight++;
     rec.lastSeen = Date.now();
     try {
+      const parsed = typeof body === 'function' ? await body() : body;
+      if (parsed === TOO_LARGE) { tooLarge(res); return; }
       await new Promise((resolve, reject) => {
         res.once('close', resolve);
-        rec.transport.handleRequest(req, res, body).catch(reject);
+        rec.transport.handleRequest(req, res, parsed).catch(reject);
       });
     } finally { rec.inFlight--; rec.lastSeen = Date.now(); }
   };
@@ -391,22 +399,16 @@ export function createMcpBridgeServer({
     const sid = req.headers['mcp-session-id'];
     try {
       if (req.method === 'POST') {
+        const existing = typeof sid === 'string' ? sessions.get(sid) : null;
+        if (existing) { await handle(existing, req, res, () => readJson(req)); return; }
         const body = await readJson(req);
-        if (body === TOO_LARGE) {
-          res.writeHead(413, { 'Content-Type': 'application/json', Connection: 'close' });
-          res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32600, message: `Request body exceeds ${maxBodyBytes} bytes.` }, id: null }));
+        if (body === TOO_LARGE) { tooLarge(res); return; }
+        if (!isInitialize(body)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'No valid session; send an initialize request first.' }, id: null }));
           return;
         }
-        let rec = typeof sid === 'string' ? sessions.get(sid) : null;
-        if (!rec) {
-          if (!isInitialize(body)) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'No valid session; send an initialize request first.' }, id: null }));
-            return;
-          }
-          rec = await createSession();
-        }
-        await handle(rec, req, res, body);
+        await handle(await createSession(), req, res, body);
       } else if (req.method === 'GET' || req.method === 'DELETE') {
         const rec = typeof sid === 'string' ? sessions.get(sid) : null;
         if (!rec) { res.writeHead(400).end(); return; }

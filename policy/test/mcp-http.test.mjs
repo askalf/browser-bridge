@@ -292,3 +292,28 @@ test('mcp-http: an IPv6 loopback bind advertises the address it listens on', asy
     assert.equal(res.status, 200);
   } finally { await srv.close(); }
 });
+
+test('mcp-http: a POST still uploading when the idle window passes keeps its session', async () => {
+  const srv = await serve({ sessionIdleMs: 50 });
+  try {
+    const init = await rawPost(srv, INIT);
+    const sid = init.headers.get('mcp-session-id');
+    await init.body?.cancel();
+    const { request } = await import('node:http');
+    const status = await new Promise((resolve, reject) => {
+      const u = new URL(srv.url);
+      const req = request({
+        host: u.hostname, port: u.port, path: u.pathname, method: 'POST',
+        headers: {
+          'content-type': 'application/json', accept: 'application/json, text/event-stream',
+          'mcp-session-id': sid, 'mcp-protocol-version': '2025-06-18',
+        },
+      }, (res) => { res.resume(); resolve(res.statusCode); });
+      req.on('error', reject);
+      const body = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+      req.write(body.slice(0, 10)); // the request has started...
+      setTimeout(() => req.end(body.slice(10)), 250); // ...and finishes well past the idle window
+    });
+    assert.equal(status, 200, 'the session was not expired mid-upload');
+  } finally { await srv.close(); }
+});

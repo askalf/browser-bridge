@@ -130,15 +130,36 @@ export async function startPicketHttpServer(opts = {}) {
   const sessions = new Map(); // sessionId → { transport, server, inFlight, lastSeen }
   let rebindingHosts = []; // filled in once the port is known
 
-  // A request counts until its RESPONSE closes: handleRequest returns while a
-  // GET stream (or a POST answered as SSE) is still open.
-  const handle = (session, req, res, body) => {
+  // Read a POST body: `{ body }`, or `{ answered: true }` once a 413 or 400
+  // has been sent.
+  const readBody = async (req, res) => {
+    const body = await readJsonBody(req, maxBodyBytes);
+    if (body === TOO_LARGE) {
+      res.setHeader('connection', 'close');
+      sendJson(res, 413, rpcError(-32600, `request body exceeds ${maxBodyBytes} bytes`));
+      return { answered: true };
+    }
+    if (body === BAD_JSON) {
+      sendJson(res, 400, rpcError(-32700, 'parse error: body is not valid JSON'));
+      return { answered: true };
+    }
+    return { body };
+  };
+
+  // A request counts from before its body is read (a slow upload is still a
+  // request) until its RESPONSE closes: handleRequest returns while a GET
+  // stream (or a POST answered as SSE) is still open.
+  const handle = async (session, req, res, preRead) => {
     session.inFlight++;
     session.lastSeen = Date.now();
-    return new Promise((resolve, reject) => {
-      res.once('close', resolve);
-      session.transport.handleRequest(req, res, body).catch(reject);
-    }).finally(() => { session.inFlight--; session.lastSeen = Date.now(); });
+    try {
+      const { body, answered } = preRead ?? (req.method === 'POST' ? await readBody(req, res) : {});
+      if (answered) return;
+      await new Promise((resolve, reject) => {
+        res.once('close', resolve);
+        session.transport.handleRequest(req, res, body).catch(reject);
+      });
+    } finally { session.inFlight--; session.lastSeen = Date.now(); }
   };
 
   const sweep = setInterval(() => {
@@ -168,27 +189,19 @@ export async function startPicketHttpServer(opts = {}) {
         }
       }
 
-      let body;
-      if (req.method === 'POST') {
-        body = await readJsonBody(req, maxBodyBytes);
-        if (body === TOO_LARGE) {
-          res.setHeader('connection', 'close');
-          return sendJson(res, 413, rpcError(-32600, `request body exceeds ${maxBodyBytes} bytes`));
-        }
-        if (body === BAD_JSON) return sendJson(res, 400, rpcError(-32700, 'parse error: body is not valid JSON'));
-      }
-
       const sessionId = req.headers['mcp-session-id'];
       if (sessionId) {
         const session = sessions.get(sessionId);
         if (!session) return sendJson(res, 404, rpcError(-32001, 'unknown or expired session'));
-        return await handle(session, req, res, body);
+        return await handle(session, req, res);
       }
 
       // No session header: only an initialize POST may open a new session.
       if (req.method !== 'POST') {
         return sendJson(res, 400, rpcError(-32000, 'no session: POST an initialize request first'));
       }
+      const preRead = await readBody(req, res);
+      if (preRead.answered) return;
       if (sessions.size >= maxSessions) {
         return sendJson(res, 503, rpcError(-32000, `session limit (${maxSessions}) reached: end an idle session with DELETE`));
       }
@@ -206,7 +219,7 @@ export async function startPicketHttpServer(opts = {}) {
       const { server } = createPicketServer({ ...opts, picket });
       const entry = { transport, server, inFlight: 0, lastSeen: Date.now() };
       await server.connect(transport);
-      return await handle(entry, req, res, body);
+      return await handle(entry, req, res, preRead);
       // A non-initialize body lands here too — the transport itself rejects it
       // with 400 per spec, so there's no session-fixation path around initialize.
     } catch (e) {
