@@ -188,3 +188,32 @@ test('parseStealthFloor: rejects values parseInt would turn into a gate that nev
   // The failure being prevented: with parseInt, `abc` gave NaN and no score fell below it.
   assert.equal(3 < parseInt('abc', 10), false);
 });
+
+test('makeIsolatedLauncher + broker: a browser already dead when launch resolves is not published', async () => {
+  const { mkdtempSync, existsSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { createSessionBroker } = await import('../session-broker.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'bb-launch-test-'));
+  try {
+    let udd;
+    let closed = 0;
+    const deadBrowser = {
+      connected: false, // disconnected before launch() returned
+      on: () => {},
+      wsEndpoint: () => 'ws://127.0.0.1:40001/devtools/browser/x',
+      process: () => ({ pid: 1 }),
+      close: async () => { closed++; },
+    };
+    const launch = makeIsolatedLauncher({
+      tmpRoot: root,
+      optionsFor: (key, userDataDir) => { udd = userDataDir; return {}; },
+      launchBrowser: async () => deadBrowser,
+    });
+    const broker = createSessionBroker({ launch });
+    await assert.rejects(() => broker.acquire('k', false), /exited during launch/);
+    assert.equal(broker.stats().sessionsActive, 0, 'no dead session is published');
+    assert.equal(closed, 1, 'the browser is closed');
+    assert.equal(existsSync(udd), false, 'its profile is removed');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

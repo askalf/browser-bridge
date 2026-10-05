@@ -115,7 +115,12 @@ export function makeIsolatedLauncher({ launchBrowser, optionsFor, tmpRoot = os.t
       removeProfile();
       throw err;
     }
-    if (onExit) b.on('disconnected', onExit);
+    if (onExit) {
+      b.on('disconnected', onExit);
+      // A browser that died before launch() resolved has already fired
+      // 'disconnected', so the listener above never will.
+      if (b.connected === false) onExit();
+    }
     return {
       wsEndpoint: b.wsEndpoint(),
       pid: b.process()?.pid,
