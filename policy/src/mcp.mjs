@@ -50,6 +50,13 @@ const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
  */
 export function createPicketServer(opts = {}) {
   const cdp = opts.cdp ?? process.env.PICKET_CDP ?? null;
+  // The CDP URL can carry the bridge's ?token=. Tool results land in the
+  // agent's transcript, so errors name the endpoint without its query.
+  const cdpShown = (() => {
+    try { const u = new URL(cdp); return u.search ? `${u.origin}${u.pathname}?<redacted>` : cdp; }
+    catch { return '<configured endpoint>'; }
+  })();
+  const unreachable = (e) => `CDP browser unreachable at ${cdpShown}: ${String(e.message).split(cdp).join(cdpShown)}`;
   const picket = opts.picket ?? new GovernedBrowser({
     allowlist: opts.allowlist,
     task: opts.task,
@@ -89,7 +96,7 @@ export function createPicketServer(opts = {}) {
         const browserWSEndpoint = await bridgeEndpoint(cdp);
         return { observation: await captureFromBridge({ url, html, browserWSEndpoint }) };
       } catch (e) {
-        if (url) return { error: `CDP browser unreachable at ${cdp}: ${e.message}` };
+        if (url) return { error: unreachable(e) };
         // a live URL truly needs the browser; inline html falls back to static
       }
     } else if (url) {
@@ -122,7 +129,7 @@ export function createPicketServer(opts = {}) {
         input.browserWSEndpoint = await bridgeEndpoint(cdp);
       } catch (e) {
         // A live URL truly needs the browser; inline html falls back to static.
-        if (url) return err(`CDP browser unreachable at ${cdp}: ${e.message}`);
+        if (url) return err(unreachable(e));
       }
     } else if (url) {
       return err('Reading a live URL needs a CDP browser (set PICKET_CDP). Pass `html` to analyze markup inline without a browser.');

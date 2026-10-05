@@ -71,7 +71,7 @@ Add `PICKET_CDP=http://127.0.0.1:9222` to run them through real Chrome (the whit
 
 ```bash
 npm install
-npm test                 # 151 tests, no browser needed
+npm test                 # the full suite, no browser needed
 npm run demo             # the pwn-vs-governed showcase + writes demo/REPORT.md
 npm run demo:incidents   # real 2025–26 browser-agent incidents, reproduced + stopped
 npm run demo:escalation  # deterministic miss → LLM-judge catch
@@ -215,7 +215,7 @@ All five roadmap stages shipped — deterministic firewall → LLM-judge → MCP
 | layer | where | what it proves |
 |---|---|---|
 | **LLM-judge escalation** | `src/judge.mjs` | ambiguous residue routes to a model verdict; the deterministic fast path keeps the obvious majority. Calibration corpus + a content-keyed verdict cache (repeat fragments are free) |
-| **MCP server** | `src/mcp.mjs`, `bin/fieldpass-mcp.mjs` | all planes for any MCP client — observe/gate/login, the oracle, the skill recorder |
+| **MCP server** | `src/mcp.mjs`, `bin/picket-mcp.mjs` | all planes for any MCP client — observe/gate/login, the oracle, the skill recorder |
 | **Live context-broker** | `src/broker.mjs` | a pool of isolated, strongroom-backed persona contexts on one shared Chrome — per-persona lock (concurrent agents never share a session), LRU eviction, non-destructive `close()` |
 | **Session → truecopy skill** | `src/skill.mjs` | a governed session recorded into a JSON manifest **truecopy loads as a skill** — `scan`/`pin`/`sign`/`verify` work on it unchanged (proven: truecopy flags a session that recorded a hostile page). The browser, in the supply chain |
 | **Replay verification oracle** | `src/oracle.mjs` | a DETERMINISTIC gate (no LLM — a model asked "did it work?" confabulates "yes") that culls an agent's browser fabrications: `snapshot` fingerprints, `diffSnapshots` flags a clean page that *regressed to an injection*, `verifyClaims` checks explicit claims against the REAL re-captured page |
@@ -257,9 +257,9 @@ demo/
   broker-demo.mjs      a pool of isolated persona contexts on one shared Chrome
   oracle-demo.mjs      cull an agent's browser fabrications, deterministically
   skill-demo.mjs       record a session → truecopy-pinnable skill → deterministic replay
-bin/fieldpass.mjs         CLI (scan, --json, --safe, CI exit codes)
-bin/fieldpass-mcp.mjs     MCP server entrypoint (stdio default, --http for Streamable HTTP)
-test/                  detector/gate/judge/cache/mcp/http/broker/oracle/skill — 151 tests, no browser
+bin/picket.mjs            CLI (scan, --json, --safe, CI exit codes)
+bin/picket-mcp.mjs        MCP server entrypoint (stdio default, --http for Streamable HTTP)
+test/                  detector/gate/judge/cache/mcp/http/broker/oracle/skill, no browser
 examples/              LangGraph.js · OpenAI Agents SDK · CrewAI · AutoGen, each browsing behind fieldpass
 ```
 

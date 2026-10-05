@@ -12,7 +12,7 @@
 import {
   INSTRUCTION_TO_AI, AUTHORITY_SPOOF, TOOL_CALL, EXFIL_VERB, SENSITIVE,
   SUSPICIOUS_SINKS, SCHEME_SINK_RE, HARD_INSTRUCTION,
-  stripInvisible, foldConfusables, stripSinks, matchAny, matchedLabels,
+  stripInvisible, hasSmugglingChars, foldConfusables, stripSinks, matchAny, matchedLabels,
   extractUrls, extractEmails, hostOf,
 } from './patterns.mjs';
 
@@ -90,7 +90,7 @@ export function analyzeNode(node, ctx) {
   // signal consistent with the hidden-with-substance rule below; a zero-width
   // char inserted INTO real text (the actual evasion) still flags, because
   // `clean` is then non-empty.
-  const zeroWidth = clean.length !== raw.length && clean.trim().length > 0;
+  const zeroWidth = hasSmugglingChars(raw) && clean.trim().length > 0;
   // Signal matching runs on the confusable-folded copy so homoglyph / fullwidth
   // spellings of an imperative can't slip past the patterns; excerpts, URLs and
   // emails below still derive from `clean` so real hosts stay intact.

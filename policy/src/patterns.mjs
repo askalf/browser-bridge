@@ -94,12 +94,23 @@ export const SENSITIVE = [
  * Matched against a CSS selector / field identifier string.
  */
 export const CREDENTIAL_FIELD =
-  /\b(type\s*=\s*["']?password|password|passwd|pwd|otp|one-?time-?(code|pass)|mfa|2fa|totp|cvv|cvc|ssn|social-?security|secret|api-?key|access-?token|bearer|seed-?phrase|card-?number|credit-?card)\b/i;
+  /(?<![a-z])(type\s*=\s*["']?password|password|passwd|pwd|otp|one[-_\s]?time[-_\s]?(code|pass)|mfa|2fa|totp|cvv|cvc|ssn|social[-_\s]?security|secret|api[-_\s]?key|access[-_\s]?token|bearer|seed[-_\s]?phrase|card[-_\s]?num(ber)?|cc[-_\s]?(num|number|csc)|credit[-_\s]?card)(?![a-z])/i;
 
 /** Irreversible / high-authority actions the action-gate should step up on. */
 export const DANGEROUS_ACTION = [
-  /\b(buy|purchase|checkout|pay|wire|transfer|send\s+money|delete|remove|drop|wipe|approve|authorize|grant\s+access|reset\s+password|disable\s+(mfa|2fa))\b/i,
+  /(?<![a-z])(buy|purchase|checkout|pay|payment|place\s*order|wire|transfer|send\s+money|delete|remove|drop|wipe|approve|authorize|grant\s+access|reset\s+password|disable\s+(mfa|2fa))(?![a-z])/i,
 ];
+
+/**
+ * Split identifier-style words so the letter-only boundaries above see them:
+ * `txtPassword` -> `txt Password`, `APIKey` -> `API Key`. Underscores and
+ * digits already count as boundaries (`user_password`, `password1`), which
+ * `\b` did not: `_` and digits are word characters to it, so `#user_password`
+ * and `#buyNow` used to pass the gate. Match the gate's patterns against this.
+ */
+export function identifierWords(text) {
+  return String(text).replace(/([a-z\d])([A-Z])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
+}
 
 /** Known data-exfil sinks: even same-shape URLs to these are suspicious. */
 export const SUSPICIOUS_SINKS = [
@@ -122,14 +133,34 @@ export const SCHEME_SINK_RE = /\b(data|javascript|vbscript|blob|file):[^\s]/i;
  * Written as explicit code points so the source stays reviewable:
  *  200B ZWSP · 200C ZWNJ · 200D ZWJ · 2060 WJ · 2061-2064 invisible math
  *  ops · FEFF BOM · 00AD soft hyphen · 180E Mongolian vowel separator.
+ * Their presence inside real text is the zero-width-smuggling SIGNAL.
  */
 export const ZERO_WIDTH_RE = /[\u200B\u200C\u200D\u2060\u2061\u2062\u2063\u2064\uFEFF\u00AD\u180E]/g;
 
 /** Unicode "tag" block (U+E0000–U+E007F) — invisible, used for ASCII smuggling. */
 export const UNICODE_TAGS_RE = /[\u{E0000}-\u{E007F}]/gu;
 
+/**
+ * Everything Unicode says renders as nothing (Default_Ignorable_Code_Point):
+ * the set above plus bidi marks and embeddings (200E/200F, 202A-202E,
+ * 2066-2069), the combining grapheme joiner (034F), variation selectors
+ * (FE00-FE0F), Hangul fillers (115F, 1160, 3164, FFA0) and more. ALL of it is
+ * stripped before matching, because any one of these inside "Ignore" splits
+ * the word for a regex while the reader, human or model, still sees it whole.
+ * Only ZERO_WIDTH_RE / UNICODE_TAGS_RE count as a signal on their own: bidi
+ * marks and variation selectors are routine on RTL pages and in emoji.
+ */
+export const IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/gu;
+
 export function stripInvisible(text) {
-  return text.replace(ZERO_WIDTH_RE, '').replace(UNICODE_TAGS_RE, '');
+  return text.replace(IGNORABLE_RE, '');
+}
+
+/** True when `text` carries a smuggling-class invisible (the signal set). */
+export function hasSmugglingChars(text) {
+  ZERO_WIDTH_RE.lastIndex = 0;
+  UNICODE_TAGS_RE.lastIndex = 0;
+  return ZERO_WIDTH_RE.test(text) || UNICODE_TAGS_RE.test(text);
 }
 
 /**
@@ -201,7 +232,10 @@ export function foldCharMap(text) {
   for (let i = 0; i < stripped.length; ) {
     const ch = String.fromCodePoint(stripped.codePointAt(i));
     const piece = (CONFUSABLES.get(ch) ?? ch).normalize('NFKC');
-    for (const _ of piece) map.push(i);
+    // One entry per UTF-16 unit, not per code point: callers index `map`
+    // with RegExp match indices, which count units. Per code point, every
+    // astral char (emoji, CJK Ext-B) before a forgery shifted the span.
+    for (let k = 0; k < piece.length; k++) map.push(i);
     folded += piece;
     i += ch.length;
   }

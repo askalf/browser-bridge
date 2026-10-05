@@ -4,6 +4,33 @@ All notable changes to `@askalf/fieldpass` are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- Invisible characters outside the old zero-width list (bidi marks and
+  embeddings, the combining grapheme joiner, variation selectors, Hangul
+  fillers: all of Unicode's Default_Ignorable set) are stripped before
+  matching. One `U+200E` inside "Ignore" used to turn a quarantine into
+  `allow`. Only the original zero-width and tag characters count as the
+  smuggling signal, so emoji and RTL pages do not start flagging.
+- The fence escape no longer lands on the wrong characters after emoji or
+  other astral text: a forged `=== END UNTRUSTED PAGE DATA ===` preceded by
+  four emoji used to come out verbatim.
+- The observed URL in the fence header is escaped like page text, so a URL
+  with a newline cannot forge the close fence.
+- The action gate reads identifier-style selectors: `#user_password`,
+  `#txtPassword`, `input[name=password1]`, `input[name=api_key]` and
+  `#card_number` are refused, and `#buyNow`, `.pay_now`, `#deleteAccount` and
+  "Confirm payment" need step-up. `\b` treated `_`, digits and camelCase as
+  part of the word, so these used to be allowed.
+- An LLM-judge injection verdict whose `action` is off-schema (`Block`,
+  `deny`, missing) escalates to at least quarantine instead of being dropped.
+- `picket_observe` / `picket_snapshot` errors no longer include the
+  `?token=` of `PICKET_CDP`.
+- `makeDarioBackend` and `resolveJudge` are exported from the package root,
+  as the README already said.
+- Docs: the `bin/picket-mcp.mjs` sample config starts the MCP server
+  (`-p @askalf/fieldpass fieldpass-mcp`), README names the real bin files,
+  and CONTRIBUTING points at `master` and the real CI job names.
+
 ## [0.6.2] - 2026-09-25
 
 ### Fixed
