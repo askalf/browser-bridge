@@ -126,3 +126,20 @@ export function makeIsolatedLauncher({ launchBrowser, optionsFor, tmpRoot = os.t
     };
   };
 }
+
+/**
+ * Make a failed listen() fatal. A server that cannot bind its port emits
+ * 'error' before it is listening; leaving the process up would give a
+ * container whose health check is green (or absent) while the port it exists
+ * for serves nothing. Errors after a successful listen are only logged.
+ *
+ * @param {import('node:net').Server} server
+ * @param {string} name  shown in the log line
+ * @param {{exit?: (code: number) => void, log?: (msg: string) => void}} [o]
+ */
+export function exitOnListenFailure(server, name, { exit = (code) => process.exit(code), log = console.error } = {}) {
+  server.on('error', (err) => {
+    log(`[browser-bridge] ${name} error: ${err.message}`);
+    if (!server.listening) exit(1);
+  });
+}

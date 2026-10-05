@@ -57,7 +57,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { createCdpProxy } from './cdp-proxy.mjs';
 import { createSessionBroker } from './session-broker.mjs';
 import { detectChromeMajor, buildUaPool, pickUa } from './ua.mjs';
-import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher } from './launch-opts.mjs';
+import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher, exitOnListenFailure } from './launch-opts.mjs';
 import { clearStaleSingletonLock } from './profile-lock.mjs';
 import { parseProxyUrl, startAuthRelay } from './proxy-auth-relay.mjs';
 
@@ -217,12 +217,7 @@ if (ISOLATED) {
 }
 
 // ── Common scaffolding (proxy listen, reaper, health/metrics, heartbeat) ──
-cdpProxy.on('error', (err) => {
-  console.error('[browser-bridge] CDP proxy error:', err.message);
-  // A failed listen (EADDRINUSE on :9222) would otherwise leave a container
-  // whose /healthz is green but which serves no CDP at all.
-  if (!cdpProxy.listening) process.exit(1);
-});
+exitOnListenFailure(cdpProxy, 'CDP proxy');
 cdpProxy.listen(EXTERNAL_PORT, '0.0.0.0', () => {
   const authMode = BRIDGE_TOKEN
     ? 'token required'
@@ -271,10 +266,7 @@ const healthServer = http.createServer(async (req, res) => {
     degraded: Boolean(authRelay) && egress !== 'upstream',
   }));
 });
-healthServer.on('error', (err) => {
-  console.error('[browser-bridge] health server error:', err.message);
-  if (!healthServer.listening) process.exit(1); // no health port means no HEALTHCHECK either
-});
+exitOnListenFailure(healthServer, 'health server');
 healthServer.listen(HEALTH_PORT, '127.0.0.1', () => {
   console.log(`[browser-bridge] health/metrics on http://127.0.0.1:${HEALTH_PORT}/healthz (+ /metrics)`);
 });

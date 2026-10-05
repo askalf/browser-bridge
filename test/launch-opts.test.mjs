@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher } from '../launch-opts.mjs';
+import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher, exitOnListenFailure } from '../launch-opts.mjs';
 
 const base = {
   chromePath: '/usr/bin/chromium',
@@ -123,4 +123,53 @@ test('makeIsolatedLauncher: close() shuts the browser and removes its profile; e
     assert.equal(closed, 1);
     assert.equal(existsSync(udd), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('exitOnListenFailure: an occupied port exits 1; errors after listening only log', async () => {
+  const net = await import('node:net');
+  const http = await import('node:http');
+  const holder = net.createServer();
+  await new Promise((r) => holder.listen(0, '127.0.0.1', r));
+  const port = holder.address().port;
+  try {
+    for (const make of [() => http.createServer(), () => net.createServer()]) {
+      const server = make();
+      const exits = [];
+      exitOnListenFailure(server, 'test server', { exit: (c) => exits.push(c), log: () => {} });
+      await new Promise((resolve) => {
+        server.once('error', () => setImmediate(resolve));
+        server.listen(port, '127.0.0.1');
+      });
+      assert.deepEqual(exits, [1], 'a failed bind is fatal');
+    }
+    const up = http.createServer();
+    const exits = [];
+    const logs = [];
+    exitOnListenFailure(up, 'live server', { exit: (c) => exits.push(c), log: (m) => logs.push(m) });
+    await new Promise((r) => up.listen(0, '127.0.0.1', r));
+    up.emit('error', new Error('later trouble'));
+    assert.deepEqual(exits, [], 'an error on a listening server does not exit');
+    assert.match(logs[0], /live server error: later trouble/);
+    await new Promise((r) => up.close(r));
+  } finally {
+    await new Promise((r) => holder.close(r));
+  }
+});
+
+test('exitOnListenFailure: the default exit ends the process with status 1', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const mod = new URL('../launch-opts.mjs', import.meta.url).href;
+  const script = `
+    import net from 'node:net';
+    import { exitOnListenFailure } from ${JSON.stringify(mod)};
+    const holder = net.createServer();
+    holder.listen(0, '127.0.0.1', () => {
+      const s = net.createServer();
+      exitOnListenFailure(s, 'CDP proxy', { log: () => {} });
+      s.listen(holder.address().port, '127.0.0.1');
+      setTimeout(() => process.exit(0), 2000).unref();
+    });
+  `;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { timeout: 10000 });
+  assert.equal(r.status, 1, `expected exit 1, got ${r.status} (${r.stderr})`);
 });
