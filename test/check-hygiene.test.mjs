@@ -188,6 +188,17 @@ test('--range passes a clean commit and pins each failure to its check', () => {
   });
 });
 
+test('--range accepts the three-dot form', () => {
+  withRepo(({ git, cli, write }) => {
+    write('base\nclean\n'); git(['commit', '-qam', 'clean']);
+    assert.equal(cli(['--range', 'HEAD~1...HEAD']).status, 0);
+    write(`base\nclean\nbad ${D} line\n`); git(['commit', '-qam', 'dash']);
+    const r = cli(['--range', 'HEAD~1...HEAD']);
+    assert.equal(r.status, 1);
+    assert.match(r.err, /a\.md:3: em dash in added text/);
+  });
+});
+
 test('--staged checks only what is staged', () => {
   withRepo(({ git, cli, write }) => {
     write(`base\nnew ${D} line\n`);

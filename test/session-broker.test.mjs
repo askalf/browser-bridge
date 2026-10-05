@@ -15,10 +15,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** A stub launcher: unique internal port per launch, records closes. */
 function stubLauncher() {
   const state = { launches: 0, closes: 0, closedKeys: [], failNext: false, delayMs: 0 };
-  const launch = async (key) => {
+  const launch = async (key, { onExit } = {}) => {
     if (state.delayMs) await sleep(state.delayMs);
     if (state.failNext) { state.failNext = false; throw new Error('launch failed'); }
     state.launches++;
+    state.exit = onExit;
     const port = 40000 + state.launches;
     return {
       wsEndpoint: `ws://127.0.0.1:${port}/devtools/browser/uuid-${state.launches}`,
@@ -137,6 +138,45 @@ test('probe reports degraded when launch fails', async () => {
   const broker = createSessionBroker({ launch });
   assert.equal(await broker.probe(), 'degraded');
   assert.equal(broker.stats().sessionsActive, 0);
+});
+
+test('probe at the session cap reports saturated without launching or counting a rejection', async () => {
+  const { launch, state } = stubLauncher();
+  const events = [];
+  const broker = createSessionBroker({ launch, maxSessions: 1, onEvent: (e) => events.push(e) });
+  await broker.acquire('a', false);
+  assert.equal(await broker.probe(), 'saturated');
+  assert.equal(state.launches, 1, 'probe must not launch past the cap');
+  assert.ok(!events.includes('session-rejected'), 'a probe is not a rejected client');
+  await broker.disposeAll();
+});
+
+test('a browser that exits on its own is forgotten, so the next connect relaunches', async () => {
+  const { launch, state } = stubLauncher();
+  const broker = createSessionBroker({ launch });
+  const h = await broker.acquire('named', false);
+  assert.equal(h.internalPort, 40001);
+  state.exit(); // the client called browser.close(), or Chromium crashed
+  await sleep(0);
+  assert.equal(broker.stats().sessionsActive, 0, 'dead session must not stay routed');
+  assert.deepEqual(state.closedKeys, ['named'], 'close() still runs to clean up the profile');
+  h.release(); // the old socket closing afterwards is harmless
+  const again = await broker.acquire('named', false);
+  assert.equal(again.internalPort, 40002, 'a fresh browser, not the dead port');
+  await broker.disposeAll();
+});
+
+test('an exit fired by the broker disposing the session is a no-op', async () => {
+  const { launch, state } = stubLauncher();
+  const broker = createSessionBroker({ launch });
+  await broker.acquire('k', false);
+  const exit = state.exit;
+  await broker.dispose('k');
+  await broker.acquire('k', false); // a new record under the same key
+  exit(); // late 'disconnected' from the first browser
+  await sleep(0);
+  assert.equal(broker.stats().sessionsActive, 1, 'the replacement session must survive');
+  await broker.disposeAll();
 });
 
 test('a failed launch frees its reserved slot (cap not permanently consumed)', async () => {

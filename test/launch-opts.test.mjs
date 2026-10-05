@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLaunchOptions } from '../launch-opts.mjs';
+import { buildLaunchOptions, envInt, envFlag } from '../launch-opts.mjs';
 
 const base = {
   chromePath: '/usr/bin/chromium',
@@ -55,4 +55,22 @@ test('buildLaunchOptions — rejects a --user-data-dir smuggled in via commonArg
 
 test('buildLaunchOptions — requires a profile directory', () => {
   assert.throws(() => buildLaunchOptions({ ...base, userDataDir: '' }), /userDataDir is required/);
+});
+
+test('envInt: default when unset or empty, value when a positive integer', () => {
+  assert.equal(envInt('X', 20, {}), 20);
+  assert.equal(envInt('X', 20, { X: '' }), 20);
+  assert.equal(envInt('X', 20, { X: ' 7 ' }), 7);
+});
+
+test('envInt: rejects values that would silently misbehave', () => {
+  // NaN disables a cap, 0 spins a timer, `8s` parses as 8 ms.
+  for (const bad of ['abc', '0', '-5', '8s', '1.5', '1e3', '99999999999999999999']) {
+    assert.throws(() => envInt('X', 1, { X: bad }), /X must be a positive integer/, bad);
+  }
+});
+
+test('envFlag: only explicit truthy words turn a flag on', () => {
+  for (const on of ['1', 'true', 'TRUE', 'yes', 'on']) assert.equal(envFlag('F', { F: on }), true, on);
+  for (const off of [undefined, '', '0', 'false', 'no', 'off']) assert.equal(envFlag('F', { F: off }), false, String(off));
 });

@@ -21,12 +21,14 @@
  *                               its last socket closes.
  *
  * `launch` is injected so the module is unit-testable without a real browser.
- * It is `async (key) => { wsEndpoint, pid, close }`.
+ * It is `async (key, { onExit }) => { wsEndpoint, pid, close }`; the launcher
+ * calls `onExit()` if the browser dies on its own (a client's browser.close()
+ * or a crash) so the key stops routing to a dead port.
  */
 
 /**
  * @param {object} opts
- * @param {(key: string) => Promise<{wsEndpoint: string, pid?: number, close: () => Promise<void>}>} opts.launch
+ * @param {(key: string, hooks: {onExit: () => void}) => Promise<{wsEndpoint: string, pid?: number, close: () => Promise<void>}>} opts.launch
  * @param {number} [opts.maxSessions]  Hard cap on concurrent sessions. A
  *   launch-per-connection endpoint is a trivial resource-exhaustion vector
  *   without one; acquisitions past the cap are rejected.
@@ -98,7 +100,7 @@ export function createSessionBroker({
     const rec = { refs: 1, lastUsed: Date.now(), ephemeral, launching: null };
     sessions.set(key, rec);
     rec.launching = (async () => {
-      const b = await launch(key);
+      const b = await launch(key, { onExit: () => exited(key, rec) });
       const { internalPort, wsPath } = parseWs(b.wsEndpoint);
       rec.internalPort = internalPort;
       rec.wsPath = wsPath;
@@ -130,6 +132,17 @@ export function createSessionBroker({
     log(`session '${key}' disposed`);
   }
 
+  // The browser went away without the broker asking (a client's
+  // browser.close(), or a crash). Forget the key so the next connect launches
+  // a fresh browser instead of being piped to a dead port, and run close() to
+  // clean up what the launcher left behind (the profile directory). Ignored
+  // once the record has been replaced or disposed through dispose().
+  function exited(key, rec) {
+    if (sessions.get(key) !== rec || rec.launching) return;
+    log(`session '${key}' browser exited`);
+    dispose(key).catch(() => {});
+  }
+
   /** Reap idle, unreferenced sessions past the TTL. */
   async function reap() {
     const now = Date.now();
@@ -146,6 +159,10 @@ export function createSessionBroker({
    * the result (the health server refreshes at most every few minutes).
    */
   async function probe() {
+    // A full broker is busy, not broken: report it without launching (which
+    // would be rejected, counted as a rejection, and mark the container
+    // unhealthy exactly when it is doing the most work).
+    if (sessions.size >= maxSessions) return 'saturated';
     const key = `__probe__${now36()}`;
     try {
       const h = await acquire(key, true);

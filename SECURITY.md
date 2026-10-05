@@ -26,7 +26,7 @@ You can expect:
 
 ## Threat model
 
-browser-bridge runs Chromium **without authentication on the CDP port**. The intended deployment is:
+By default browser-bridge runs Chromium **without authentication on the CDP port**; set `BRIDGE_TOKEN` to require a shared secret on every request. Either way, the intended deployment is:
 
 - A private docker-compose network (other services in the same compose) reach `:9222`.
 - Or a host-bound port (`-p 127.0.0.1:9222:9222`) for a single-machine dev setup.
@@ -46,5 +46,6 @@ browser-bridge runs Chromium **without authentication on the CDP port**. The int
 
 - Bot detection by individual sites. Stealth evasions are a moving target; sites may identify our fingerprint over time.
 - Vulnerabilities in upstream Chromium, puppeteer-extra, or the Debian packages — please report those upstream.
-- The known posture of "CDP is unauthenticated"; bind to a private network.
+- The known posture of "CDP is unauthenticated unless `BRIDGE_TOKEN` is set"; bind to a private network.
+- In isolated mode, a named session key (`?session=<key>`) is a bearer capability: anyone who can reach the bridge and knows the key gets that session's browser. Use unguessable keys, and `BRIDGE_TOKEN` on any shared network.
 - Resource exhaustion via large pages — bound by your host's RAM and `--shm-size` settings.

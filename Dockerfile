@@ -3,7 +3,7 @@
 # that wants to connect to a remote Chromium without running the browser
 # itself.
 #
-# Image size ~600MB — chromium itself + node:22-slim + puppeteer-extra
+# Image size ~600MB — chromium itself + node:26-slim + puppeteer-extra
 # stealth deps. We build under non-root `browser` so the running process
 # isn't privileged.
 # Digest-pinned (Scorecard Pinned-Dependencies); dependabot's docker ecosystem
@@ -59,8 +59,9 @@ EXPOSE 9225
 # the built-in CDP proxy fronts it on 0.0.0.0:9222 so other containers can
 # reach it. The healthcheck hits /healthz on :9224 (container-internal),
 # which checks the CDP connection itself — not just TCP liveness — and
-# carries a deep page-load check in its body.
+# carries a deep page-load check in its body. Shell form so it follows
+# BRIDGE_HEALTH_PORT when a deployment moves the health server.
 HEALTHCHECK --interval=15s --timeout=10s --start-period=15s --retries=3 \
-  CMD curl -sf http://127.0.0.1:9224/healthz || exit 1
+  CMD curl -sf "http://127.0.0.1:${BRIDGE_HEALTH_PORT:-9224}/healthz" || exit 1
 
 CMD ["node", "/app/launch.mjs"]

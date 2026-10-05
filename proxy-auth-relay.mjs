@@ -443,7 +443,12 @@ export function createAuthRelay({
       }
     });
 
+    // Set once the upstream has answered (any status) or the attempt failed,
+    // so the 'close' that follows either one is not mistaken for a new failure.
+    let settled = false;
     const fail = (err) => {
+      if (settled) return;
+      settled = true;
       if (failoverEnabled && !established && isUnreachable(err)) {
         breaker.trip(err.code || err.message);
         upstream.destroy();
@@ -458,10 +463,19 @@ export function createAuthRelay({
     };
 
     upstream.on('error', fail);
+    // An upstream that accepts and then closes cleanly (a FIN, no error)
+    // before answering would otherwise leave Chromium's tunnel hanging: the
+    // close also clears the connect timeout. Same window as a reset, so the
+    // same code.
+    upstream.once('close', () => {
+      fail(Object.assign(new Error('upstream closed before answering CONNECT'), { code: 'ECONNRESET' }));
+    });
 
     readResponseHead(
       upstream,
       (responseHead, rest) => {
+        if (settled) return;
+        settled = true;
         const status = Number(responseHead.split(' ')[1]);
         if (status !== 200) {
           // Relay the upstream's own answer rather than inventing one — a 407

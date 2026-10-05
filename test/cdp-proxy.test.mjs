@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
 import { createHash } from 'node:crypto';
-import { createCdpProxy } from '../cdp-proxy.mjs';
+import { createCdpProxy, strippedPath } from '../cdp-proxy.mjs';
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
@@ -118,6 +118,23 @@ test('forwards HTTP, rewrites Host to loopback, rewrites ws URLs to the external
       `ws://127.0.0.1:${proxyPort}/devtools/browser/stub-uuid-1234`,
       'webSocketDebuggerUrl should point at the host the client used, not the internal port',
     );
+  });
+});
+
+test('strippedPath removes only the token and leaves the rest of the query as sent', () => {
+  const p = (s) => strippedPath(new URL(s, 'http://bridge.invalid'));
+  assert.equal(p('/json/new?https://example.com'), '/json/new?https://example.com');
+  assert.equal(p('/json/new?about:blank'), '/json/new?about:blank');
+  assert.equal(p('/json/version'), '/json/version');
+  assert.equal(p('/json/version?token=s3cret'), '/json/version');
+  assert.equal(p('/x?a=1&token=s3cret&b=%2F'), '/x?a=1&b=%2F');
+  assert.equal(p('/x?tok%65n=s3cret&a=1'), '/x?a=1', 'an encoded key is still the token');
+});
+
+test('forwards /json/new with its target URL intact', async () => {
+  await withProxy({}, async ({ proxyPort, state }) => {
+    await httpGet(proxyPort, '/json/new?https://example.com/a?b=1');
+    assert.equal(state.lastRequest.path, '/json/new?https://example.com/a?b=1');
   });
 });
 
@@ -254,6 +271,16 @@ test('broker mode: /json/version honours a client-supplied session id', async ()
     assert.equal(
       JSON.parse(res.body).webSocketDebuggerUrl,
       `ws://127.0.0.1:${proxyPort}/?session=mykey`,
+    );
+  });
+});
+
+test('broker mode: a session id cannot inject query parameters into the ws URL', async () => {
+  await withBrokerProxy({}, async ({ proxyPort }) => {
+    const res = await httpGet(proxyPort, '/json/version?session=a%26token%3Dx');
+    assert.equal(
+      JSON.parse(res.body).webSocketDebuggerUrl,
+      `ws://127.0.0.1:${proxyPort}/?session=a%26token%3Dx`,
     );
   });
 });

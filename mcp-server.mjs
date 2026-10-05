@@ -33,6 +33,7 @@ import puppeteer from 'puppeteer-core';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { envInt } from './launch-opts.mjs';
 
 export const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
@@ -275,7 +276,16 @@ export function buildSessionServer(rec, connect, log) {
 }
 
 // ── HTTP layer: stateful Streamable-HTTP, one MCP session ⇒ one bridge session ──
-export function createMcpBridgeServer({ cdpUrl = 'http://127.0.0.1:9222', token = '', path = '/mcp', connect, log = () => {} } = {}) {
+//
+// A client that exits without sending DELETE never fires the transport's
+// onclose, so sessions with no request in flight are closed after
+// `sessionIdleMs`: otherwise each one keeps its bridge connection (and, in
+// isolated mode, a broker slot) forever. An open GET stream counts as in
+// flight. Request bodies past `maxBodyBytes` are refused with 413.
+export function createMcpBridgeServer({
+  cdpUrl = 'http://127.0.0.1:9222', token = '', path = '/mcp', connect, log = () => {},
+  sessionIdleMs = 30 * 60 * 1000, maxBodyBytes = 4 * 1024 * 1024,
+} = {}) {
   const doConnect = connect || ((key) => defaultConnect(cdpUrl, token, key));
   const sessions = new Map(); // mcpSessionId -> rec
 
@@ -292,16 +302,53 @@ export function createMcpBridgeServer({ cdpUrl = 'http://127.0.0.1:9222', token 
     return a.length === b.length && timingSafeEqual(a, b);
   };
 
+  // Resolves the parsed body (undefined when empty, null when malformed), or
+  // TOO_LARGE once the body passes maxBodyBytes.
+  const TOO_LARGE = Symbol('too large');
   const readJson = (req) => new Promise((resolve) => {
+    if (Number(req.headers['content-length']) > maxBodyBytes) { resolve(TOO_LARGE); return; }
     const chunks = [];
-    req.on('data', (c) => chunks.push(c));
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > maxBodyBytes) { req.removeAllListeners('data'); req.resume(); resolve(TOO_LARGE); return; }
+      chunks.push(c);
+    });
     req.on('end', () => {
+      if (size > maxBodyBytes) return;
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) { resolve(undefined); return; }
       try { resolve(JSON.parse(raw)); } catch { resolve(null); }
     });
     req.on('error', () => resolve(null));
   });
+
+  // Run one request against a session, tracking it as in flight so the idle
+  // sweep never closes a session mid-request or under an open GET stream.
+  // handleRequest can return while the response is still streaming (a GET
+  // listener, or a POST answered as SSE), so a request counts until its
+  // response closes.
+  const handle = async (rec, req, res, body) => {
+    rec.inFlight++;
+    rec.lastSeen = Date.now();
+    try {
+      await new Promise((resolve, reject) => {
+        res.once('close', resolve);
+        rec.transport.handleRequest(req, res, body).catch(reject);
+      });
+    } finally { rec.inFlight--; rec.lastSeen = Date.now(); }
+  };
+
+  const sweep = setInterval(() => {
+    const now = Date.now();
+    for (const rec of [...sessions.values()]) {
+      if (rec.inFlight === 0 && now - rec.lastSeen > sessionIdleMs) {
+        log(`mcp session ${rec.id} idle for ${Math.round((now - rec.lastSeen) / 1000)}s, closing`);
+        rec.transport.close().catch(() => {});
+      }
+    }
+  }, Math.min(sessionIdleMs, 60000));
+  sweep.unref();
 
   const isInitialize = (body) =>
     (Array.isArray(body) ? body : [body]).some((m) => m && m.method === 'initialize');
@@ -312,7 +359,7 @@ export function createMcpBridgeServer({ cdpUrl = 'http://127.0.0.1:9222', token 
   }
 
   async function createSession() {
-    const rec = { id: null, transport: null, server: null, browser: null, connecting: null };
+    const rec = { id: null, transport: null, server: null, browser: null, connecting: null, inFlight: 0, lastSeen: Date.now() };
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (sid) => { rec.id = sid; sessions.set(sid, rec); log(`mcp session ${sid} initialized`); },
@@ -325,7 +372,15 @@ export function createMcpBridgeServer({ cdpUrl = 'http://127.0.0.1:9222', token 
   }
 
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://mcp.invalid');
+    let url;
+    try {
+      url = new URL(req.url, 'http://mcp.invalid');
+    } catch {
+      // e.g. `GET //`: an unparseable path must not become an unhandled
+      // rejection that takes the process down.
+      res.writeHead(400).end();
+      return;
+    }
     if (!tokenOk(req, url)) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'browser-bridge mcp: missing or invalid token' }));
@@ -337,6 +392,11 @@ export function createMcpBridgeServer({ cdpUrl = 'http://127.0.0.1:9222', token 
     try {
       if (req.method === 'POST') {
         const body = await readJson(req);
+        if (body === TOO_LARGE) {
+          res.writeHead(413, { 'Content-Type': 'application/json', Connection: 'close' });
+          res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32600, message: `Request body exceeds ${maxBodyBytes} bytes.` }, id: null }));
+          return;
+        }
         let rec = typeof sid === 'string' ? sessions.get(sid) : null;
         if (!rec) {
           if (!isInitialize(body)) {
@@ -346,11 +406,11 @@ export function createMcpBridgeServer({ cdpUrl = 'http://127.0.0.1:9222', token 
           }
           rec = await createSession();
         }
-        await rec.transport.handleRequest(req, res, body);
+        await handle(rec, req, res, body);
       } else if (req.method === 'GET' || req.method === 'DELETE') {
         const rec = typeof sid === 'string' ? sessions.get(sid) : null;
         if (!rec) { res.writeHead(400).end(); return; }
-        await rec.transport.handleRequest(req, res);
+        await handle(rec, req, res);
       } else {
         res.writeHead(405).end();
       }
@@ -364,8 +424,10 @@ export function createMcpBridgeServer({ cdpUrl = 'http://127.0.0.1:9222', token 
     server,
     listen: (port, host = '0.0.0.0') => new Promise((r) => server.listen(port, host, () => r(server.address().port))),
     close: async () => {
+      clearInterval(sweep);
       for (const rec of [...sessions.values()]) await cleanup(rec);
       server.close();
+      server.closeAllConnections(); // idle keep-alive sockets would hold close() open
     },
     sessionCount: () => sessions.size,
   };
@@ -374,11 +436,12 @@ export function createMcpBridgeServer({ cdpUrl = 'http://127.0.0.1:9222', token 
 // ── Standalone entrypoint ────────────────────────────────────────────
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const port = parseInt(process.env.BRIDGE_MCP_PORT || '9225', 10);
+  const port = envInt('BRIDGE_MCP_PORT', 9225);
   const path = process.env.BRIDGE_MCP_PATH || '/mcp';
   const cdpUrl = process.env.BRIDGE_CDP_URL || 'http://127.0.0.1:9222';
   const token = process.env.BRIDGE_TOKEN || '';
-  const mcp = createMcpBridgeServer({ cdpUrl, token, path, log: (m) => console.error(`[browser-bridge mcp] ${m}`) });
+  const sessionIdleMs = envInt('BRIDGE_MCP_SESSION_IDLE_MS', 30 * 60 * 1000);
+  const mcp = createMcpBridgeServer({ cdpUrl, token, path, sessionIdleMs, log: (m) => console.error(`[browser-bridge mcp] ${m}`) });
   await mcp.listen(port);
   console.error(`[browser-bridge mcp] listening on http://0.0.0.0:${port}${path} → CDP ${cdpUrl}${token ? ' (token required)' : ''}`);
   const bye = async () => { await mcp.close(); process.exit(0); };

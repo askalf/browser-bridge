@@ -49,9 +49,9 @@ Chromium strips credentials out of `--proxy-server` and waits for a human to ans
 
 **Decide this per deployment.** Going direct means the same browser, carrying the same logged-in cookies, suddenly appears from a different address and ASN, which is the shape of event that trips an account security challenge. If the proxy is there for its exit address, an outage is better than a silent relocation. If it is the only route out, failing over is obviously right.
 
-- **Only unreachability counts.** Connection refused, host or network unreachable, DNS failure, reset before the tunnel is up, connect timeout.
+- **Only unreachability counts.** Connection refused, host or network unreachable, DNS failure, reset or close before the tunnel is up, connect timeout.
 - **Never an answer.** A `407`, a refused `CONNECT`, any status the proxy sends is the proxy working and saying no.
-- **The timeout is what fires in real life.** A tunnel whose far end has vanished swallows packets rather than refusing them; `PROXY_CONNECT_TIMEOUT_MS` is armed only until the TCP connect lands, so it can never truncate a long-lived tunnel.
+- **The timeout is what fires in real life.** A tunnel whose far end has vanished swallows packets rather than refusing them; `PROXY_CONNECT_TIMEOUT_MS` is armed only until the upstream answers (the TCP connect for plain HTTP, the `CONNECT` reply for HTTPS), so it can never truncate a long-lived tunnel. It applies with fallback off too: there it turns a hung upstream into a `502`.
 - **One failure trips the breaker.** Subsequent requests go direct immediately; the relay re-probes upstream after 30 s and returns to it as soon as it answers.
 
 Degradation is reported, never gated on: `/healthz` shows `"egress":"direct"` and `"degraded":true` at `200`, and `/metrics` counts `proxyFallbacks`.

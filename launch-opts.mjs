@@ -54,3 +54,35 @@ export function buildLaunchOptions({ chromePath, commonArgs, debugPort, userData
     ignoreDefaultArgs: ['--enable-automation'],
   };
 }
+
+/**
+ * Read a positive-integer env var, or the default when unset or empty.
+ * Anything else throws at startup: a typo like `abc` or `8s` would
+ * otherwise parse to NaN or a wrong unit and quietly disable a session cap,
+ * spin a timer every millisecond, or crash on the first socket that uses it.
+ *
+ * @param {string} name
+ * @param {number} def
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {number}
+ */
+export function envInt(name, def, env = process.env) {
+  const raw = (env[name] ?? '').trim();
+  if (raw === '') return def;
+  if (!/^\d+$/.test(raw) || Number(raw) <= 0 || !Number.isSafeInteger(Number(raw))) {
+    throw new Error(`${name} must be a positive integer, got ${JSON.stringify(env[name])}`);
+  }
+  return Number(raw);
+}
+
+/**
+ * Read a boolean env var. Only 1/true/yes/on (any case) turn it on, so an
+ * explicit `0` or `false` means off rather than "set, therefore on".
+ *
+ * @param {string} name
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {boolean}
+ */
+export function envFlag(name, env = process.env) {
+  return /^(1|true|yes|on)$/i.test((env[name] ?? '').trim());
+}

@@ -441,6 +441,15 @@ function startBlackHole() {
   });
 }
 
+/** Accepts TCP, then closes cleanly without answering: a sidecar whose far end is down. */
+function startHangUp() {
+  const server = net.createServer((socket) => socket.end());
+  const stop = trackSockets(server);
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ port: server.address().port, stop }));
+  });
+}
+
 async function withFailoverRelay({ upstreamPort, ...opts }, fn) {
   const server = createAuthRelay({
     host: '127.0.0.1',
@@ -510,6 +519,38 @@ test('failover — a silent upstream (accepts, never answers) times out and fall
     });
   } finally {
     blackHole.stop();
+    origin.stop();
+  }
+});
+
+test('relay - an upstream that closes before answering CONNECT gets 502, not a hang', async () => {
+  const hangUp = await startHangUp();
+  const server = createAuthRelay({
+    host: '127.0.0.1', port: hangUp.port, username: 'fleet', password: 's3cret', connectTimeoutMs: 5000,
+  });
+  const stop = trackSockets(server);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const res = await connectThroughRelay(server.address().port, 'example.com:443');
+    assert.equal(res.status, 502);
+    res.socket.destroy();
+  } finally {
+    stop();
+    hangUp.stop();
+  }
+});
+
+test('failover - an upstream that closes before answering CONNECT falls back', async () => {
+  const hangUp = await startHangUp();
+  const origin = await startEchoOrigin();
+  try {
+    await withFailoverRelay({ upstreamPort: hangUp.port, connectTimeoutMs: 5000 }, async ({ port }) => {
+      const res = await connectThroughRelay(port, `127.0.0.1:${origin.port}`);
+      assert.equal(res.status, 200);
+      res.socket.destroy();
+    });
+  } finally {
+    hangUp.stop();
     origin.stop();
   }
 });
