@@ -71,7 +71,7 @@ export function createSessionBroker({
         rec.lastUsed = Date.now();
         // Ephemeral sessions die with their connection; named ones linger for
         // reuse until the idle reaper collects them.
-        if (rec.ephemeral && rec.refs === 0) dispose(key);
+        if (rec.ephemeral && rec.refs === 0) dispose(key, rec);
       },
     };
   }
@@ -132,9 +132,14 @@ export function createSessionBroker({
     return handleFor(key, rec);
   }
 
-  async function dispose(key) {
+  /**
+   * Close and forget the session for `key`. With `expected`, only when that
+   * record is still the live one: a handle from a browser that has since
+   * exited and been replaced must not close the replacement.
+   */
+  async function dispose(key, expected) {
     const rec = sessions.get(key);
-    if (!rec) return;
+    if (!rec || (expected && rec !== expected)) return;
     sessions.delete(key);
     try {
       if (rec.close) await rec.close();
@@ -152,7 +157,7 @@ export function createSessionBroker({
     if (sessions.get(key) !== rec) return;
     if (rec.starting) { rec.exitedDuringLaunch = true; return; } // acquire() fails the launch
     log(`session '${key}' browser exited`);
-    dispose(key).catch(() => {});
+    dispose(key, rec).catch(() => {});
   }
 
   /** Reap idle, unreferenced sessions past the TTL. */

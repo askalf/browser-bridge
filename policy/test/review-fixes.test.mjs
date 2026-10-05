@@ -1,9 +1,9 @@
 /**
- * Regressions for evasions and leaks found in a repo-wide review: invisible
- * characters beyond the zero-width set, astral text before a forged fence,
- * identifier-style selectors slipping past the gate, a judge verdict
- * lost to spelling, a forged fence through the URL, and the bridge token in
- * an error message.
+ * Detector, gate, fence, judge, oracle and MCP-server guarantees: invisible
+ * characters inside words, astral text before a forged fence, identifier-style
+ * selectors, off-schema judge actions, URLs in the fence header, token
+ * redaction in errors, per-call trusted tasks, withheld text and titles in
+ * replays, and registrable domains in the split detector.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

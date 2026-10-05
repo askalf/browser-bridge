@@ -194,6 +194,21 @@ test('an exit reported synchronously from inside launch() is not published eithe
   await broker.disposeAll();
 });
 
+test('releasing a handle from an exited browser does not close its replacement', async () => {
+  const { launch, state } = stubLauncher();
+  const broker = createSessionBroker({ launch });
+  const old = await broker.acquire('k', true); // ephemeral: its last release disposes
+  state.exit();
+  await new Promise((r) => setTimeout(r, 0));
+  const fresh = await broker.acquire('k', false);
+  old.release();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(broker.stats().sessionsActive, 1, 'the replacement session survives');
+  assert.deepEqual(state.closedKeys, ['k'], 'only the exited browser was closed');
+  assert.equal(fresh.internalPort, 40002);
+  await broker.disposeAll();
+});
+
 test('an exit fired by the broker disposing the session is a no-op', async () => {
   const { launch, state } = stubLauncher();
   const broker = createSessionBroker({ launch });
