@@ -25,7 +25,8 @@ jobs:
     # non-root one-job runners on our host, so GitHub's hosted
     # queue going down does not hold our PRs. A fork's PR and a Dependabot PR run code nobody
     # here wrote, so they stay on GitHub's runners.
-    runs-on: ${{ github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
+    # A fork repository has no browser-bridge-exec runners, so every run there stays on GitHub's runners too.
+    runs-on: ${{ (github.repository != 'askalf/browser-bridge' || github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]')) && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
     timeout-minutes: 10
     defaults:
       run:
@@ -49,7 +50,8 @@ jobs:
     # non-root one-job runners on our host, so GitHub's hosted
     # queue going down does not hold our PRs. A fork's PR and a Dependabot PR run code nobody
     # here wrote, so they stay on GitHub's runners.
-    runs-on: ${{ github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
+    # A fork repository has no browser-bridge-exec runners, so every run there stays on GitHub's runners too.
+    runs-on: ${{ (github.repository != 'askalf/browser-bridge' || github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]')) && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
     timeout-minutes: 10
     defaults:
       run:
