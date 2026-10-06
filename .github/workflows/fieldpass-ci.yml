@@ -21,7 +21,11 @@ permissions:
 
 jobs:
   fieldpass-test:
-    runs-on: ubuntu-latest
+    # Our own code (pushes, same-repo PRs, schedules, dispatches) runs on browser-bridge-exec, the
+    # non-root one-job runners on our host (platform deploy/gha-runners), so GitHub's hosted
+    # queue going down does not hold our PRs. A fork's PR and a Dependabot PR run code nobody
+    # here wrote, so they stay on GitHub's runners.
+    runs-on: ${{ github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
     timeout-minutes: 10
     defaults:
       run:
@@ -41,7 +45,11 @@ jobs:
   # A separate job, not a matrix, so `fieldpass-test` stays a single status
   # context if it is ever made required.
   fieldpass-test-node20:
-    runs-on: ubuntu-latest
+    # Our own code (pushes, same-repo PRs, schedules, dispatches) runs on browser-bridge-exec, the
+    # non-root one-job runners on our host (platform deploy/gha-runners), so GitHub's hosted
+    # queue going down does not hold our PRs. A fork's PR and a Dependabot PR run code nobody
+    # here wrote, so they stay on GitHub's runners.
+    runs-on: ${{ github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
     timeout-minutes: 10
     defaults:
       run:

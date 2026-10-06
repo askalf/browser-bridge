@@ -9,7 +9,9 @@ permissions: {}
 
 jobs:
   backfill:
-    runs-on: ubuntu-latest
+    # Our own script on its own trigger, never PR code: on our runner, so GitHub's hosted
+    # queue going down does not stop it.
+    runs-on: [self-hosted, browser-bridge-exec]
     timeout-minutes: 10
     permissions:
       contents: read
