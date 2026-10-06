@@ -17,6 +17,13 @@ test('parseChromeMajor — Debian chromium --version line', () => {
   assert.equal(parseChromeMajor('Chromium 140.0.7339.185 built on Debian GNU/Linux'), 140);
 });
 
+test('parseChromeMajor: an absurdly long digit run is unparseable, never Infinity', () => {
+  // The fuzzer's input: `parseInt` on 400 digits is Infinity.
+  assert.equal(parseChromeMajor(`Chromium ${'9'.repeat(400)}.0.1.2`), null);
+  assert.equal(parseChromeMajor('Chromium 123456.0.1'), null, 'not the tail of a longer major');
+  assert.equal(parseChromeMajor('Chromium 99999.0.1'), 99999);
+});
+
 test('parseChromeMajor — Google Chrome and bare version strings', () => {
   assert.equal(parseChromeMajor('Google Chrome 141.0.7390.54'), 141);
   assert.equal(parseChromeMajor('149.0.0.0'), 149);

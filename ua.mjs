@@ -36,10 +36,14 @@ export const UA_TEMPLATES = [
 // Chromium the image installs so the fallback isn't itself a stale mismatch.
 export const FALLBACK_CHROME_MAJOR = 140;
 
-/** Extract the Chrome/Chromium major from a `--version` string. Pure. Returns null if unparseable. */
+/**
+ * Extract the Chrome/Chromium major from a `--version` string. Pure. Returns
+ * null if unparseable. The major is at most 5 digits and is the version's
+ * first component: not the tail of a longer digit run, nor a later component.
+ */
 export function parseChromeMajor(versionOutput) {
-  const m = /(\d+)\.\d+\.\d+/.exec(String(versionOutput ?? ''));
-  return m ? parseInt(m[1], 10) : null;
+  const m = /(?<![\d.])(\d{1,5})\.\d+\.\d+/.exec(String(versionOutput ?? ''));
+  return m ? Number(m[1]) : null;
 }
 
 /** Build the concrete UA pool for a given Chrome major. Pure. */

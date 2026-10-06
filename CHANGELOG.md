@@ -12,7 +12,11 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-06
+
 ### Fixed
+
+- `parseChromeMajor` returns null for a version whose major is longer than 5 digits or is not the first component. A `--version` line with a few hundred digits used to parse to `Infinity`, which went into every user-agent string (found by the `ua` fuzz target).
 
 - The MCP endpoint no longer exits on a request whose path does not parse (`GET //`). It answers `400`; before, the error became an unhandled rejection that ended the process, ahead of the token check.
 - MCP sessions whose client never sends `DELETE` are closed after `BRIDGE_MCP_SESSION_IDLE_MS` (default 30 minutes) with no request in flight. Each one used to keep its bridge connection, and in isolated mode a broker slot, until restart. Request bodies over 4 MB get `413`.
