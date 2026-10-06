@@ -4,6 +4,51 @@ All notable changes to `@askalf/fieldpass` are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- Invisible characters outside the old zero-width list (bidi marks and
+  embeddings, the combining grapheme joiner, variation selectors, Hangul
+  fillers: all of Unicode's Default_Ignorable set) are stripped before
+  matching. One `U+200E` inside "Ignore" used to turn a quarantine into
+  `allow`. Only the original zero-width and tag characters count as the
+  smuggling signal, so emoji and RTL pages do not start flagging.
+- The fence escape no longer lands on the wrong characters after emoji or
+  other astral text: a forged `=== END UNTRUSTED PAGE DATA ===` preceded by
+  four emoji used to come out verbatim.
+- The observed URL in the fence header is escaped like page text, so a URL
+  with a newline cannot forge the close fence.
+- The action gate reads identifier-style selectors: `#user_password`,
+  `#txtPassword`, `input[name=password1]`, `input[name=api_key]` and
+  `#card_number` are refused, and `#buyNow`, `.pay_now`, `#deleteAccount` and
+  "Confirm payment" need step-up. `\b` treated `_`, digits and camelCase as
+  part of the word, so these used to be allowed.
+- An LLM-judge injection verdict whose `action` is off-schema (`Block`,
+  `deny`, missing) escalates to at least quarantine instead of being dropped.
+- `picket_observe` / `picket_snapshot` errors no longer include the
+  `?token=` of `PICKET_CDP`.
+- `makeDarioBackend` and `resolveJudge` are exported from the package root,
+  as the README already said.
+- Concurrent `picket_observe` calls no longer share the trusted task. It
+  was set on the one GovernedBrowser every MCP session uses and restored
+  after an await, so one caller's task could appear in another's safe view
+  and become the default for later calls. `observe(input, { task })` now
+  takes it per call.
+- A page `<title>` that trips the firewall no longer comes back verbatim from
+  `picket_snapshot`, `picket_replay` field changes, or a `redactText` skill
+  manifest; it is shown as `[picket: title withheld #<hash>]`.
+- `picket_replay` and `picket_skill_replay` no longer return, in
+  `removedText`, a payload the golden had withheld. Goldens now record hashes
+  of their withheld lines (`withheld`) so the diff can filter them; the raw
+  text stays in the golden for canon to scan.
+- The split-trifecta detector takes `acme.co.uk` (not `co.uk`) as the page's
+  domain, so an exfil address at another `.co.uk` domain is off-origin.
+- The Streamable HTTP server caps request bodies (`maxBodyBytes`, default
+  4 MB, `413`) and sessions (`maxSessions`, default 100, `503`), closes
+  sessions idle for `sessionIdleMs` (default 30 min), and advertises
+  `http://[::1]:<port>` for an IPv6 loopback bind.
+- Docs: the `bin/picket-mcp.mjs` sample config starts the MCP server
+  (`-p @askalf/fieldpass fieldpass-mcp`), README names the real bin files,
+  and CONTRIBUTING points at `master` and the real CI job names.
+
 ## [0.6.2] - 2026-09-25
 
 ### Fixed

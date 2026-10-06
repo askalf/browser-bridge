@@ -236,3 +236,84 @@ test('mcp-http: a loopback bind without a token is still allowed (guard is expos
   const srv = await startPicketHttpServer({ host: '127.0.0.1', port: 0 });
   try { assert.ok(srv.port > 0); } finally { await srv.close(); }
 });
+
+const INIT = {
+  jsonrpc: '2.0', id: 1, method: 'initialize',
+  params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } },
+};
+const rawPost = (srv, body, headers = {}) => fetch(srv.url, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+});
+
+test('mcp-http: an oversized body is refused with 413 before any session exists', async () => {
+  const srv = await serve({ maxBodyBytes: 1024 });
+  try {
+    const res = await rawPost(srv, { ...INIT, pad: 'x'.repeat(8192) });
+    assert.equal(res.status, 413);
+    assert.equal(srv.sessionCount(), 0);
+    const bad = await rawPost(srv, '{not json');
+    assert.equal(bad.status, 400);
+  } finally { await srv.close(); }
+});
+
+test('mcp-http: new sessions past maxSessions get 503; existing ones keep working', async () => {
+  const srv = await serve({ maxSessions: 1 });
+  try {
+    const client = await connect(srv);
+    const res = await rawPost(srv, INIT);
+    assert.equal(res.status, 503);
+    assert.equal(srv.sessionCount(), 1);
+    const r = await client.callTool({ name: 'picket_gate', arguments: { type: 'navigate', url: 'https://acme.example/' } });
+    assert.match(textOf(r), /ALLOW/);
+    await client.close();
+  } finally { await srv.close(); }
+});
+
+test('mcp-http: a session nobody DELETEs is closed once idle', async () => {
+  const srv = await serve({ sessionIdleMs: 50 });
+  try {
+    const res = await rawPost(srv, INIT);
+    assert.equal(res.status, 200);
+    await res.body?.cancel();
+    assert.equal(srv.sessionCount(), 1);
+    for (let i = 0; i < 40 && srv.sessionCount() > 0; i++) await new Promise((r) => setTimeout(r, 25));
+    assert.equal(srv.sessionCount(), 0);
+  } finally { await srv.close(); }
+});
+
+test('mcp-http: an IPv6 loopback bind advertises the address it listens on', async () => {
+  let srv;
+  try { srv = await serve({ host: '::1' }); } catch { return; } // no IPv6 on this host
+  try {
+    assert.match(srv.url, /^http:\/\/\[::1\]:\d+\/mcp$/);
+    const res = await fetch(srv.url.replace('/mcp', '/healthz'));
+    assert.equal(res.status, 200);
+  } finally { await srv.close(); }
+});
+
+test('mcp-http: a POST still uploading when the idle window passes keeps its session', async () => {
+  const srv = await serve({ sessionIdleMs: 50 });
+  try {
+    const init = await rawPost(srv, INIT);
+    const sid = init.headers.get('mcp-session-id');
+    await init.body?.cancel();
+    const { request } = await import('node:http');
+    const status = await new Promise((resolve, reject) => {
+      const u = new URL(srv.url);
+      const req = request({
+        host: u.hostname, port: u.port, path: u.pathname, method: 'POST',
+        headers: {
+          'content-type': 'application/json', accept: 'application/json, text/event-stream',
+          'mcp-session-id': sid, 'mcp-protocol-version': '2025-06-18',
+        },
+      }, (res) => { res.resume(); resolve(res.statusCode); });
+      req.on('error', reject);
+      const body = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+      req.write(body.slice(0, 10)); // the request has started...
+      setTimeout(() => req.end(body.slice(10)), 250); // ...and finishes well past the idle window
+    });
+    assert.equal(status, 200, 'the session was not expired mid-upload');
+  } finally { await srv.close(); }
+});

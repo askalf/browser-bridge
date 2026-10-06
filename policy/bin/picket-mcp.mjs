@@ -9,7 +9,7 @@
  *     "mcpServers": {
  *       "picket": {
  *         "command": "npx",
- *         "args": ["-y", "@askalf/fieldpass", "picket-mcp"],
+ *         "args": ["-y", "-p", "@askalf/fieldpass", "fieldpass-mcp"],
  *         "env": {
  *           "PICKET_ALLOWLIST": "example.com,acme.example",
  *           "PICKET_CDP": "http://127.0.0.1:9222",

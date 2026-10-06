@@ -139,9 +139,11 @@ function dashProblems(diff) {
 export function main(argv) {
   const [mode, arg] = argv;
   if (mode === '--range' && arg) {
-    const [base, head = 'HEAD'] = arg.split('..');
-    const problems = dashProblems(git('diff', '--unified=0', '--no-color', `${base}...${head}`));
-    for (const c of commitsIn(arg)) {
+    // A..B and A...B both mean "what B adds over A": the diff runs from the
+    // merge base (three dots) and the commit check walks the two-dot range.
+    const [base, head = 'HEAD'] = arg.split(/\.{2,3}/);
+    const problems = dashProblems(git('diff', '--unified=0', '--no-color', `${base}...${head || 'HEAD'}`));
+    for (const c of commitsIn(`${base}..${head || 'HEAD'}`)) {
       for (const r of findAttribution(c)) problems.push(`${c.sha.slice(0, 7)}: ${r}`);
     }
     return report(problems);

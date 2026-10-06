@@ -441,6 +441,29 @@ function startBlackHole() {
   });
 }
 
+/** Accepts TCP, then closes cleanly without answering: a sidecar whose far end is down. */
+function startHangUp() {
+  const server = net.createServer((socket) => socket.end());
+  const stop = trackSockets(server);
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ port: server.address().port, stop }));
+  });
+}
+
+/** Answers CONNECT with 200, then resets the tunnel: a remote that dies mid-stream. */
+function startResetAfterConnect() {
+  const server = net.createServer((socket) => {
+    socket.once('data', () => {
+      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      setTimeout(() => socket.resetAndDestroy(), 50);
+    });
+  });
+  const stop = trackSockets(server);
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ port: server.address().port, stop }));
+  });
+}
+
 async function withFailoverRelay({ upstreamPort, ...opts }, fn) {
   const server = createAuthRelay({
     host: '127.0.0.1',
@@ -511,6 +534,141 @@ test('failover — a silent upstream (accepts, never answers) times out and fall
   } finally {
     blackHole.stop();
     origin.stop();
+  }
+});
+
+test('relay - an upstream that closes before answering CONNECT gets 502, not a hang', async () => {
+  const hangUp = await startHangUp();
+  const server = createAuthRelay({
+    host: '127.0.0.1', port: hangUp.port, username: 'fleet', password: 's3cret', connectTimeoutMs: 5000,
+  });
+  const stop = trackSockets(server);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const res = await connectThroughRelay(server.address().port, 'example.com:443');
+    assert.equal(res.status, 502);
+    res.socket.destroy();
+  } finally {
+    stop();
+    hangUp.stop();
+  }
+});
+
+test('failover - an upstream that closes before answering CONNECT falls back', async () => {
+  const hangUp = await startHangUp();
+  const origin = await startEchoOrigin();
+  try {
+    await withFailoverRelay({ upstreamPort: hangUp.port, connectTimeoutMs: 5000 }, async ({ port }) => {
+      const res = await connectThroughRelay(port, `127.0.0.1:${origin.port}`);
+      assert.equal(res.status, 200);
+      res.socket.destroy();
+    });
+  } finally {
+    hangUp.stop();
+    origin.stop();
+  }
+});
+
+test('relay - an upstream reset after the tunnel is up closes the client', async () => {
+  const upstream = await startResetAfterConnect();
+  const server = createAuthRelay({
+    host: '127.0.0.1', port: upstream.port, username: 'fleet', password: 's3cret', connectTimeoutMs: 5000,
+  });
+  const stop = trackSockets(server);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const res = await connectThroughRelay(server.address().port, 'example.com:443');
+    assert.equal(res.status, 200);
+    const extra = [];
+    res.socket.on('data', (c) => extra.push(c));
+    await new Promise((resolve, reject) => {
+      res.socket.once('close', resolve);
+      setTimeout(() => reject(new Error('client socket left open on a dead tunnel')), 2000).unref();
+    });
+    assert.equal(Buffer.concat(extra).toString(), '', 'no HTTP status written into the tunnel');
+  } finally {
+    stop();
+    upstream.stop();
+  }
+});
+
+test('relay - a client reset on an established tunnel closes the upstream', async () => {
+  let upstreamClosed;
+  const closed = new Promise((r) => { upstreamClosed = r; });
+  const upstream = net.createServer((socket) => {
+    socket.once('data', () => socket.write('HTTP/1.1 200 Connection Established\r\n\r\n'));
+    socket.on('error', () => {});
+    socket.on('close', () => upstreamClosed(true));
+  });
+  const stopUp = trackSockets(upstream);
+  await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
+  const server = createAuthRelay({
+    host: '127.0.0.1', port: upstream.address().port, username: 'fleet', password: 's3cret', connectTimeoutMs: 5000,
+  });
+  const stop = trackSockets(server);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const res = await connectThroughRelay(server.address().port, 'example.com:443');
+    assert.equal(res.status, 200);
+    res.socket.resetAndDestroy();
+    const result = await Promise.race([closed, new Promise((r) => setTimeout(() => r(false), 2000).unref())]);
+    assert.equal(result, true, 'upstream tunnel must not outlive the client');
+  } finally {
+    stop();
+    stopUp();
+  }
+});
+
+test('failover - a client that leaves before the upstream answers is closed and does not trip the breaker', async () => {
+  const blackHole = await startBlackHole();
+  try {
+    await withFailoverRelay({ upstreamPort: blackHole.port, connectTimeoutMs: 2000 }, async ({ server, port }) => {
+      const started = Date.now();
+      await new Promise((resolve, reject) => {
+        const s = net.connect(port, '127.0.0.1', () => {
+          s.write('CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n');
+          setTimeout(() => s.end(), 50); // a clean FIN: the relay sees only 'end'
+        });
+        s.on('error', () => {});
+        s.on('close', resolve);
+        setTimeout(() => reject(new Error('relay left the abandoned client socket open')), 1000).unref();
+      });
+      assert.ok(Date.now() - started < 1000, 'closed well before the upstream timeout');
+      await new Promise((r) => setTimeout(r, 2200)); // past the connect timeout
+      assert.equal(server.egressStatus(), 'upstream', 'a departed client says nothing about the upstream');
+    });
+  } finally {
+    blackHole.stop();
+  }
+});
+
+test('failover - a client half-close on a fallback tunnel still gets the origin\'s reply', async () => {
+  // An origin that answers only after the client has finished sending.
+  const origin = net.createServer({ allowHalfOpen: true }, (socket) => {
+    let got = '';
+    socket.on('data', (c) => { got += c; });
+    socket.on('end', () => socket.end(`origin:${got}`));
+    socket.on('error', () => {});
+  });
+  const stopOrigin = trackSockets(origin);
+  await new Promise((r) => origin.listen(0, '127.0.0.1', r));
+  try {
+    await withFailoverRelay({ upstreamPort: 1 }, async ({ port }) => {
+      const res = await connectThroughRelay(port, `127.0.0.1:${origin.address().port}`);
+      assert.equal(res.status, 200, 'fell back to a direct tunnel');
+      const reply = await new Promise((resolve, reject) => {
+        let buf = '';
+        res.socket.removeAllListeners('data');
+        res.socket.on('data', (c) => { buf += c; });
+        res.socket.on('close', () => resolve(buf));
+        res.socket.on('error', reject);
+        res.socket.write('hello');
+        res.socket.end(); // half-close: done sending, still listening
+      });
+      assert.equal(reply, 'origin:hello');
+    });
+  } finally {
+    stopOrigin();
   }
 });
 

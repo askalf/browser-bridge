@@ -18,6 +18,7 @@
 
 import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
+import { parseStealthFloor } from './launch-opts.mjs';
 
 const arg = (name, def) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -92,7 +93,13 @@ async function main() {
   const { results, webgl } = out;
   const total = results.length;
   const passed = results.filter((r) => r.pass).length;
-  const floor = parseInt(process.env.BRIDGE_STEALTH_FLOOR || String(total - 1), 10);
+  let floor;
+  try {
+    floor = parseStealthFloor(process.env.BRIDGE_STEALTH_FLOOR, total);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
 
   for (const r of results) console.log(`  ${r.pass ? 'PASS' : 'FAIL'}  ${r.name.padEnd(28)} ${r.detail}`);
   console.log(`  ----  webgl (informational)      ${webgl}`);

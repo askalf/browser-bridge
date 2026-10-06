@@ -12,6 +12,26 @@ time, rename that heading to `## [X.Y.Z] - YYYY-MM-DD`, push a tag
 
 ## [Unreleased]
 
+### Fixed
+
+- The MCP endpoint no longer exits on a request whose path does not parse (`GET //`). It answers `400`; before, the error became an unhandled rejection that ended the process, ahead of the token check.
+- MCP sessions whose client never sends `DELETE` are closed after `BRIDGE_MCP_SESSION_IDLE_MS` (default 30 minutes) with no request in flight. Each one used to keep its bridge connection, and in isolated mode a broker slot, until restart. Request bodies over 4 MB get `413`.
+- The proxy auth relay answers a `CONNECT` whose upstream closes before replying (a VPN sidecar whose far end is down) with `502`, or falls back when `PROXY_FALLBACK=direct`. It used to leave Chromium's tunnel hanging.
+- Isolated mode forgets a session whose browser exits on its own (a client's `browser.close()`, a crash), so the next connect with that key launches a fresh browser instead of being piped to a dead port. A failed launch removes its temporary profile directory.
+- Isolated-mode `/healthz` stays `200` when every session slot is in use (`"pageCheck":"saturated"`). A full broker used to fail its own probe, report `503`, and invite autoheal to restart a busy container.
+- `/json/new?<url>` and other query strings reach Chromium as sent. The `?token=` stripper re-encoded every query, so `?https://example.com` arrived as `?https%3A%2F%2Fexample.com=`.
+- A session id is URL-encoded in the isolated-mode `webSocketDebuggerUrl`, so it cannot add query parameters.
+- The image `HEALTHCHECK` follows `BRIDGE_HEALTH_PORT` instead of always probing `:9224`.
+- The bridge exits if the CDP proxy or health server cannot bind its port, instead of running with a green health check and no CDP.
+- `scripts/check-hygiene.mjs --range A...B` works; the three-dot form used to crash.
+
+### Changed
+
+- Numeric settings must be positive integers. `BRIDGE_MAX_SESSIONS=abc` used to remove the session cap, `BRIDGE_REAP_INTERVAL_MS=0` ran the reaper every millisecond, and `PROXY_CONNECT_TIMEOUT_MS=8s` meant 8 ms; the bridge now refuses to start on any of them.
+- `BRIDGE_ALLOW_HOSTNAMES` is on only for `1`, `true`, `yes` or `on`. Any other value, `0` and `false` included, used to turn it on.
+- `engines.node` is `>=22.12.0`, the floor `puppeteer-core` already required. CI runs the unit tests on Node 26, the image's runtime.
+- Dependabot also updates `policy/` (npm) and the fuzz build image's base digest.
+
 ## [0.7.0] - 2026-09-25
 
 ### Added

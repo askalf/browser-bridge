@@ -12,7 +12,7 @@
 import {
   INSTRUCTION_TO_AI, AUTHORITY_SPOOF, TOOL_CALL, EXFIL_VERB, SENSITIVE,
   SUSPICIOUS_SINKS, SCHEME_SINK_RE, HARD_INSTRUCTION,
-  stripInvisible, foldConfusables, stripSinks, matchAny, matchedLabels,
+  stripInvisible, hasSmugglingChars, foldConfusables, stripSinks, matchAny, matchedLabels,
   extractUrls, extractEmails, hostOf,
 } from './patterns.mjs';
 
@@ -90,7 +90,7 @@ export function analyzeNode(node, ctx) {
   // signal consistent with the hidden-with-substance rule below; a zero-width
   // char inserted INTO real text (the actual evasion) still flags, because
   // `clean` is then non-empty.
-  const zeroWidth = clean.length !== raw.length && clean.trim().length > 0;
+  const zeroWidth = hasSmugglingChars(raw) && clean.trim().length > 0;
   // Signal matching runs on the confusable-folded copy so homoglyph / fullwidth
   // spellings of an imperative can't slip past the patterns; excerpts, URLs and
   // emails below still derive from `clean` so real hosts stay intact.
@@ -166,12 +166,29 @@ export function analyzeNode(node, ctx) {
 const SPLIT_WINDOW_NODES = 5;
 const SPLIT_WINDOW_CHARS = 800;
 
+// Second-level labels that ccTLDs register under (acme.co.uk, acme.com.au).
+// Not the full public-suffix list: an unlisted suffix errs toward a SHORTER
+// root when the label is missing, so add any that a deployment needs.
+const CC_SECOND_LEVEL = new Set([
+  'co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'ne', 'or', 'go', 'gob', 'mil', 'ltd', 'plc', 'sch', 'nic', 'nom',
+]);
+
+/** The page's registrable domain: acme.example, or acme.co.uk (never co.uk). */
+function registrableRoot(host) {
+  const labels = host.split('.');
+  const n = labels.length >= 3 && labels[labels.length - 1].length === 2
+    && CC_SECOND_LEVEL.has(labels[labels.length - 2]) ? 3 : 2;
+  return labels.slice(-n).join('.');
+}
+
 /** An email whose domain is NOT under the page's own registrable domain. */
 function hasOffOriginEmail(text, ctx) {
   const emails = extractEmails(text);
   if (emails.length === 0) return false;
   if (!ctx.originHost) return true;
-  const root = ctx.originHost.split('.').slice(-2).join('.');
+  // The registrable domain, not the last two labels: on shop.acme.co.uk the
+  // site is acme.co.uk, and drop@evil.co.uk is someone else.
+  const root = registrableRoot(ctx.originHost);
   return emails.some((e) => {
     const dom = (e.split('@')[1] || '').toLowerCase();
     return dom && dom !== root && !dom.endsWith('.' + root);

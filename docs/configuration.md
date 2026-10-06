@@ -7,11 +7,11 @@ Back to the [README](../README.md).
 | Env var | Default | Effect |
 |---|---|---|
 | `BRIDGE_TOKEN` | unset | Shared secret required on every CDP request and WebSocket when set. Unset = open. |
-| `BRIDGE_ALLOW_HOSTNAMES` | unset | Accept DNS-name `Host` headers **without** a token. Not needed with `BRIDGE_TOKEN`. Opt-in because Chromium's `Host` check doubles as DNS-rebinding protection. |
+| `BRIDGE_ALLOW_HOSTNAMES` | unset | `1`/`true`/`yes`/`on` = accept DNS-name `Host` headers **without** a token; anything else, `0` and `false` included, leaves it off. Not needed with `BRIDGE_TOKEN`. Opt-in because Chromium's `Host` check doubles as DNS-rebinding protection. |
 | `CDP_ALLOWED_ORIGIN` | loopback origins | Comma-separated `Origin` values allowed on CDP WebSockets (`--remote-allow-origins`). Playwright and Puppeteer send no `Origin` and need nothing here. |
 | `HTTPS_PROXY` / `HTTP_PROXY` | unset | Outbound proxy for Chromium. Accepts `http://user:pass@host:port`. `HTTPS_PROXY` wins if both are set. |
 | `PROXY_FALLBACK` | `off` | `direct` = retry an unreachable upstream straight out of the container. Only applies to a credentialed proxy URL. Never on a `407`. |
-| `PROXY_CONNECT_TIMEOUT_MS` | `8000` | TCP connect timeout to the upstream proxy. Only used with `PROXY_FALLBACK=direct`. |
+| `PROXY_CONNECT_TIMEOUT_MS` | `8000` | How long the auth relay waits for a credentialed upstream proxy: until TCP connects for plain HTTP, and until the upstream answers the `CONNECT` for HTTPS. Applies whether or not `PROXY_FALLBACK` is on; with it on, a timeout is what triggers the fallback. |
 | `BRIDGE_SESSION_MODE` | `shared` | `shared` = one browser for all clients. `isolated` = a browser per connection. |
 | `BRIDGE_MAX_SESSIONS` | `20` | *(isolated)* Concurrent-session cap; past it, `503`. |
 | `BRIDGE_SESSION_IDLE_MS` | `300000` | *(isolated)* Reap a session this long after its last connection closes. |
@@ -24,7 +24,13 @@ Back to the [README](../README.md).
 | `BRIDGE_MCP_PORT` | `9225` | *(mcp-server.mjs)* Port the MCP endpoint listens on. |
 | `BRIDGE_MCP_PATH` | `/mcp` | *(mcp-server.mjs)* Request path for the MCP endpoint. |
 | `BRIDGE_CDP_URL` | `http://127.0.0.1:9222` | *(mcp-server.mjs)* The bridge the MCP server connects to. |
+| `BRIDGE_MCP_SESSION_IDLE_MS` | `1800000` | *(mcp-server.mjs)* Close an MCP session, and its browser connection, after this long with no request in flight. Covers clients that exit without sending `DELETE`. |
+| `BROWSER_SESSION_ID` | unset | *(shared)* Seed for the user-agent pick, so a restarted container keeps the same UA. Unset = a new pick per process. |
+| `BRIDGE_STEALTH_FLOOR` | battery size - 1 | *(stealth-score.mjs)* Minimum number of passing checks; below it the script exits non-zero. A non-integer value is an error. |
+| `BRIDGE_STEALTH_OUT` | `stealth.json` | *(stealth-score.mjs)* Where the stealth score JSON is written. |
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Chromium binary. Rarely overridden. |
+
+The bridge's numeric settings must be positive integers; it refuses to start on anything else (`abc`, `0`, `8s`) rather than run with a disabled cap or a busy-looping timer.
 
 Ports: **9222** CDP (the image `EXPOSE`s it). **9224** health and metrics, container-internal. **9225** the optional MCP endpoint, only when `mcp-server.mjs` runs.
 
@@ -34,13 +40,13 @@ Ports: **9222** CDP (the image `EXPOSE`s it). **9224** health and metrics, conta
 
 ```bash
 docker exec <c> curl -s http://127.0.0.1:9224/healthz
-# {"ok":true,"connected":true,"pageCheck":"ok","pagesOpen":2}
+# {"ok":true,"connected":true,"pageCheck":"ok","pagesOpen":2,"egress":"direct","degraded":false}
 
 docker exec <c> curl -s http://127.0.0.1:9224/metrics
-# {"uptimeSec":4211,"pagesOpen":2,"pagesCreated":17,"pagesReaped":3,
-#  "navCount":42,"healthChecks":280,"lastReapAt":1765500000000,
-#  "authFailures":0,"hostBlocked":0,"cdpConnectionsTotal":5,
-#  "cdpConnectionsActive":1,"connected":true}
+# {"uptimeSec":4211,"mode":"shared","navCount":42,"pagesReaped":3,
+#  "healthChecks":280,"lastReapAt":1765500000000,"authFailures":0,
+#  "hostBlocked":0,"cdpConnectionsTotal":5,"cdpConnectionsActive":1,
+#  "egress":"direct","proxyFallbacks":0,"pagesOpen":2,"pagesCreated":17}
 ```
 
-`/healthz` returns `503` only when the CDP connection is gone. The deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute. One heartbeat log line per minute carries the same counters; pair with `restart: unless-stopped` for self-recovery.
+`/healthz` returns `503` only when the CDP connection is gone (shared mode) or a probe session cannot be launched (isolated mode; a broker with every slot in use reports `"pageCheck":"saturated"` at `200`). In shared mode the deep check opens a throwaway context and evaluates `1+1`, refreshed at most once a minute; in isolated mode it launches a probe session, refreshed at most every 5 minutes, so a failed probe holds `503` until the next one. One heartbeat log line per minute carries the same counters; pair with `restart: unless-stopped` for self-recovery.

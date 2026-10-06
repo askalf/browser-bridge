@@ -14,16 +14,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** A stub launcher: unique internal port per launch, records closes. */
 function stubLauncher() {
-  const state = { launches: 0, closes: 0, closedKeys: [], failNext: false, delayMs: 0 };
-  const launch = async (key) => {
+  const state = { launches: 0, closes: 0, closedKeys: [], failNext: false, delayMs: 0, exitDuringLaunch: false };
+  const launch = async (key, { onExit } = {}) => {
     if (state.delayMs) await sleep(state.delayMs);
     if (state.failNext) { state.failNext = false; throw new Error('launch failed'); }
     state.launches++;
+    state.exit = onExit;
+    if (state.exitDuringLaunch) { state.exitDuringLaunch = false; onExit(); }
     const port = 40000 + state.launches;
     return {
       wsEndpoint: `ws://127.0.0.1:${port}/devtools/browser/uuid-${state.launches}`,
       pid: 1000 + state.launches,
-      close: async () => { state.closes++; state.closedKeys.push(key); },
+      close: async () => {
+        if (state.closeDelayMs) await sleep(state.closeDelayMs);
+        state.closes++; state.closedKeys.push(key);
+      },
     };
   };
   return { launch, state };
@@ -137,6 +142,108 @@ test('probe reports degraded when launch fails', async () => {
   const broker = createSessionBroker({ launch });
   assert.equal(await broker.probe(), 'degraded');
   assert.equal(broker.stats().sessionsActive, 0);
+});
+
+test('probe at the session cap reports saturated without launching or counting a rejection', async () => {
+  const { launch, state } = stubLauncher();
+  const events = [];
+  const broker = createSessionBroker({ launch, maxSessions: 1, onEvent: (e) => events.push(e) });
+  await broker.acquire('a', false);
+  assert.equal(await broker.probe(), 'saturated');
+  assert.equal(state.launches, 1, 'probe must not launch past the cap');
+  assert.ok(!events.includes('session-rejected'), 'a probe is not a rejected client');
+  await broker.disposeAll();
+});
+
+test('a browser that exits on its own is forgotten, so the next connect relaunches', async () => {
+  const { launch, state } = stubLauncher();
+  const broker = createSessionBroker({ launch });
+  const h = await broker.acquire('named', false);
+  assert.equal(h.internalPort, 40001);
+  state.exit(); // the client called browser.close(), or Chromium crashed
+  await sleep(0);
+  assert.equal(broker.stats().sessionsActive, 0, 'dead session must not stay routed');
+  assert.deepEqual(state.closedKeys, ['named'], 'close() still runs to clean up the profile');
+  h.release(); // the old socket closing afterwards is harmless
+  const again = await broker.acquire('named', false);
+  assert.equal(again.internalPort, 40002, 'a fresh browser, not the dead port');
+  await broker.disposeAll();
+});
+
+test('a browser that exits before its launch resolves is not published', async () => {
+  const { launch, state } = stubLauncher();
+  state.delayMs = 10;
+  const broker = createSessionBroker({ launch, maxSessions: 1 });
+  state.exitDuringLaunch = true;
+  const results = await Promise.allSettled([broker.acquire('k', false), broker.acquire('k', false)]);
+  assert.deepEqual(results.map((r) => r.status), ['rejected', 'rejected'], 'every coalesced acquirer sees the failure');
+  assert.match(results[0].reason.message, /exited during launch/);
+  assert.equal(broker.stats().sessionsActive, 0, 'the slot is freed');
+  assert.deepEqual(state.closedKeys, ['k'], 'the launcher\'s resources are released');
+  const again = await broker.acquire('k', false);
+  assert.equal(again.internalPort, 40002, 'the next acquire launches a fresh browser');
+  await broker.disposeAll();
+});
+
+test('an exit reported synchronously from inside launch() is not published either', async () => {
+  const { launch, state } = stubLauncher(); // no delay: onExit runs before launch() returns
+  const broker = createSessionBroker({ launch, maxSessions: 1 });
+  state.exitDuringLaunch = true;
+  await assert.rejects(() => broker.acquire('k', false), /exited during launch/);
+  assert.equal(broker.stats().sessionsActive, 0, 'the slot is freed');
+  assert.deepEqual(state.closedKeys, ['k'], 'the launcher\'s resources are released');
+  const again = await broker.acquire('k', false);
+  assert.equal(again.internalPort, 40002);
+  await broker.disposeAll();
+});
+
+test('releasing a handle from an exited browser does not close its replacement', async () => {
+  const { launch, state } = stubLauncher();
+  const broker = createSessionBroker({ launch });
+  const old = await broker.acquire('k', true); // ephemeral: its last release disposes
+  state.exit();
+  await new Promise((r) => setTimeout(r, 0));
+  const fresh = await broker.acquire('k', false);
+  old.release();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(broker.stats().sessionsActive, 1, 'the replacement session survives');
+  assert.deepEqual(state.closedKeys, ['k'], 'only the exited browser was closed');
+  assert.equal(fresh.internalPort, 40002);
+  await broker.disposeAll();
+});
+
+test('reap never closes a session that replaced the one it found idle', async () => {
+  const { launch, state } = stubLauncher();
+  const broker = createSessionBroker({ launch, idleTtlMs: 1 });
+  const a = await broker.acquire('A', false);
+  const b = await broker.acquire('B', false);
+  const exitB = state.exit;
+  a.release(); b.release();
+  await sleep(5);
+  // B's browser exits and a client reconnects to B while reap is busy closing A.
+  state.closeDelayMs = 30;
+  const reaping = broker.reap();
+  exitB();
+  await sleep(0);
+  state.closeDelayMs = 0;
+  const b2 = await broker.acquire('B', false);
+  await reaping;
+  assert.equal(broker.stats().sessionsActive, 1, 'the in-use B2 survives the reap');
+  assert.equal(b2.internalPort, 40003);
+  await broker.disposeAll();
+});
+
+test('an exit fired by the broker disposing the session is a no-op', async () => {
+  const { launch, state } = stubLauncher();
+  const broker = createSessionBroker({ launch });
+  await broker.acquire('k', false);
+  const exit = state.exit;
+  await broker.dispose('k');
+  await broker.acquire('k', false); // a new record under the same key
+  exit(); // late 'disconnected' from the first browser
+  await sleep(0);
+  assert.equal(broker.stats().sessionsActive, 1, 'the replacement session must survive');
+  await broker.disposeAll();
 });
 
 test('a failed launch frees its reserved slot (cap not permanently consumed)', async () => {

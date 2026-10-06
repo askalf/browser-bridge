@@ -82,11 +82,24 @@ export const forwardedHeaderLines = (req, targetHost) => {
   return lines;
 };
 
-/** Forwarded path with the ?token= secret removed. Pure (mutates only `url`). */
+/**
+ * Forwarded path with the ?token= secret removed. Every other query pair is
+ * passed through byte for byte: re-serialising through URLSearchParams would
+ * turn `/json/new?https://example.com` into `?https%3A%2F%2Fexample.com=`.
+ */
 export const strippedPath = (url) => {
-  url.searchParams.delete('token');
-  const qs = url.searchParams.toString();
-  return url.pathname + (qs ? `?${qs}` : '');
+  // A key counts as the token after percent-decoding and with any leading
+  // '?' removed: `??token=` is still the token to anything that re-parses
+  // the query and drops one '?'.
+  const keyOf = (pair) => {
+    let k = pair.split('=')[0].replace(/\+/g, ' ');
+    try { k = decodeURIComponent(k); } catch { /* keep the raw key */ }
+    return k.replace(/^\?+/, '');
+  };
+  const pairs = url.search.slice(1).split('&');
+  const kept = pairs.filter((pair) => keyOf(pair) !== 'token');
+  if (kept.length === pairs.length) return url.pathname + url.search;
+  return url.pathname + (kept.length ? `?${kept.join('&')}` : '');
 };
 
 /**
@@ -185,7 +198,7 @@ export function createCdpProxy({
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           Browser: 'browser-bridge (isolated)',
-          webSocketDebuggerUrl: `ws://${host}/?session=${sid}${tokenQs}`,
+          webSocketDebuggerUrl: `ws://${host}/?session=${encodeURIComponent(sid)}${tokenQs}`,
         }));
         return;
       }

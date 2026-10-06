@@ -112,6 +112,8 @@ services:
       BRIDGE_CDP_URL: http://browser:9222
       # BRIDGE_TOKEN: ${BRIDGE_TOKEN}   # required on MCP requests, presented onward to the bridge
     ports: ["9225:9225"]
+    # The image's HEALTHCHECK probes the bridge's :9224, which this process does not serve.
+    healthcheck: { disable: true }
 ```
 
-Point a client at `http://<host>:9225/mcp`. Each MCP session opens one bridge connection as `?session=mcp-<id>`, so with the bridge in isolated mode every MCP session has its own browser. The browser opens lazily on the first tool call and is disposed when the MCP session ends.
+Point a client at `http://<host>:9225/mcp`. Each MCP session opens one bridge connection as `?session=mcp-<id>`, so with the bridge in isolated mode every MCP session has its own browser. The browser opens lazily on the first tool call and is disposed when the MCP session ends: when the client sends `DELETE`, or after `BRIDGE_MCP_SESSION_IDLE_MS` (default 30 minutes) with no request in flight, so a client that exits without saying goodbye does not hold a browser forever. Request bodies over 4 MB are refused with `413`.

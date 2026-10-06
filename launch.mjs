@@ -52,15 +52,12 @@
  */
 
 import http from 'node:http';
-import os from 'node:os';
-import path from 'node:path';
-import fs from 'node:fs';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { createCdpProxy } from './cdp-proxy.mjs';
 import { createSessionBroker } from './session-broker.mjs';
 import { detectChromeMajor, buildUaPool, pickUa } from './ua.mjs';
-import { buildLaunchOptions } from './launch-opts.mjs';
+import { buildLaunchOptions, envInt, envFlag, makeIsolatedLauncher, exitOnListenFailure } from './launch-opts.mjs';
 import { clearStaleSingletonLock } from './profile-lock.mjs';
 import { parseProxyUrl, startAuthRelay } from './proxy-auth-relay.mjs';
 
@@ -102,9 +99,9 @@ const EXTERNAL_PORT = 9222; // the CDP proxy exposes this on 0.0.0.0
 const SESSION_MODE = (process.env.BRIDGE_SESSION_MODE ?? 'shared').toLowerCase();
 const ISOLATED = SESSION_MODE === 'isolated';
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN ?? '';
-const ALLOW_HOSTNAMES = !!process.env.BRIDGE_ALLOW_HOSTNAMES;
-const MAX_SESSIONS = parseInt(process.env.BRIDGE_MAX_SESSIONS || '20', 10);
-const SESSION_IDLE_MS = parseInt(process.env.BRIDGE_SESSION_IDLE_MS || '300000', 10);
+const ALLOW_HOSTNAMES = envFlag('BRIDGE_ALLOW_HOSTNAMES');
+const MAX_SESSIONS = envInt('BRIDGE_MAX_SESSIONS', 20);
+const SESSION_IDLE_MS = envInt('BRIDGE_SESSION_IDLE_MS', 300000);
 
 // CDP origin lock — restrict the CDP WebSocket Origin to loopback so a
 // browser-based page can't drive the CDP via DNS rebinding. Puppeteer /
@@ -115,11 +112,11 @@ const DEFAULT_ALLOWED_ORIGINS = [
 ].join(',');
 const ALLOWED_ORIGINS = process.env.CDP_ALLOWED_ORIGIN || DEFAULT_ALLOWED_ORIGINS;
 
-const HEALTH_PORT = parseInt(process.env.BRIDGE_HEALTH_PORT || '9224', 10);
-const REAP_INTERVAL_MS = parseInt(process.env.BRIDGE_REAP_INTERVAL_MS || '30000', 10);
-const BLANK_TTL_MS = parseInt(process.env.BRIDGE_BLANK_TTL_MS || '120000', 10);
-const MAX_IDLE_MS = parseInt(process.env.BRIDGE_MAX_IDLE_MS || '900000', 10);
-const MAX_PAGES = parseInt(process.env.BRIDGE_MAX_PAGES || '25', 10);
+const HEALTH_PORT = envInt('BRIDGE_HEALTH_PORT', 9224);
+const REAP_INTERVAL_MS = envInt('BRIDGE_REAP_INTERVAL_MS', 30000);
+const BLANK_TTL_MS = envInt('BRIDGE_BLANK_TTL_MS', 120000);
+const MAX_IDLE_MS = envInt('BRIDGE_MAX_IDLE_MS', 900000);
+const MAX_PAGES = envInt('BRIDGE_MAX_PAGES', 25);
 
 // Chromium args common to both modes. Per-instance args (debugging port, user
 // data dir, user-agent) are appended per launch below.
@@ -154,7 +151,7 @@ const HTTP_PROXY = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY;
 // by the container's own IP can be worse than not leaving at all. Only the
 // deployment knows which, so only the deployment turns it on.
 const PROXY_FALLBACK = (process.env.PROXY_FALLBACK || 'off').trim().toLowerCase();
-const PROXY_CONNECT_TIMEOUT_MS = parseInt(process.env.PROXY_CONNECT_TIMEOUT_MS || '8000', 10);
+const PROXY_CONNECT_TIMEOUT_MS = envInt('PROXY_CONNECT_TIMEOUT_MS', 8000);
 let authRelay = null;
 // Counts failovers so a degraded egress shows up in /metrics rather than only
 // in the logs, where nothing is watching.
@@ -220,7 +217,7 @@ if (ISOLATED) {
 }
 
 // ── Common scaffolding (proxy listen, reaper, health/metrics, heartbeat) ──
-cdpProxy.on('error', (err) => console.error('[browser-bridge] CDP proxy error:', err.message));
+exitOnListenFailure(cdpProxy, 'CDP proxy');
 cdpProxy.listen(EXTERNAL_PORT, '0.0.0.0', () => {
   const authMode = BRIDGE_TOKEN
     ? 'token required'
@@ -269,7 +266,7 @@ const healthServer = http.createServer(async (req, res) => {
     degraded: Boolean(authRelay) && egress !== 'upstream',
   }));
 });
-healthServer.on('error', (err) => console.error('[browser-bridge] health server error:', err.message));
+exitOnListenFailure(healthServer, 'health server');
 healthServer.listen(HEALTH_PORT, '127.0.0.1', () => {
   console.log(`[browser-bridge] health/metrics on http://127.0.0.1:${HEALTH_PORT}/healthz (+ /metrics)`);
 });
@@ -428,24 +425,16 @@ async function startShared() {
 // ISOLATED runtime — a broker gives each connection its own Chromium.
 // ════════════════════════════════════════════════════════════════════
 async function startIsolated() {
-  const launch = async (key) => {
-    const udd = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-sess-'));
-    const b = await puppeteer.launch(buildLaunchOptions({
+  const launch = makeIsolatedLauncher({
+    launchBrowser: (opts) => puppeteer.launch(opts),
+    optionsFor: (key, userDataDir) => buildLaunchOptions({
       chromePath: CHROME_PATH,
       commonArgs: COMMON_ARGS,
       debugPort: 0,
-      userDataDir: udd,
+      userDataDir,
       userAgent: pickUa(UA_POOL, key, FALLBACK_SEED),
-    }));
-    return {
-      wsEndpoint: b.wsEndpoint(),
-      pid: b.process()?.pid,
-      close: async () => {
-        try { await b.close(); } catch { /* already gone */ }
-        try { fs.rmSync(udd, { recursive: true, force: true }); } catch { /* gone */ }
-      },
-    };
-  };
+    }),
+  });
 
   const broker = createSessionBroker({
     launch, maxSessions: MAX_SESSIONS, idleTtlMs: SESSION_IDLE_MS,
@@ -472,6 +461,8 @@ async function startIsolated() {
   getHealth = async () => {
     const now = Date.now();
     if (now - healthCache.at > 300000) healthCache = { at: now, pageCheck: await broker.probe() };
+    // 'saturated' (every session slot in use) is healthy: a busy bridge is
+    // not a broken one, and restarting it would drop every live session.
     const ok = healthCache.pageCheck !== 'degraded';
     return { ok, pageCheck: healthCache.pageCheck, pagesOpen: broker.stats().sessionsActive };
   };

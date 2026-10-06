@@ -407,6 +407,7 @@ export function createAuthRelay({
       clientSocket.pipe(direct);
     });
     direct.setTimeout(connectTimeoutMs, () => direct.destroy(new Error('origin connect timed out')));
+    clientSocket.once('close', (hadError) => { if (hadError) direct.destroy(); else direct.end(); });
     direct.on('error', (err) => {
       log(`direct CONNECT ${req.url} failed: ${err.message}`);
       if (!clientSocket.destroyed) {
@@ -443,10 +444,35 @@ export function createAuthRelay({
       }
     });
 
+    // Set once the upstream has answered (any status) or the attempt failed,
+    // so the 'close' that follows either one is not mistaken for a new failure.
+    let settled = false;
     const fail = (err) => {
-      if (failoverEnabled && !established && isUnreachable(err)) {
+      if (established) {
+        // The tunnel is up and carrying TLS, so neither a retry nor an HTTP
+        // status is possible. Destroying the upstream does not emit the 'end'
+        // that pipe() forwards, so close the client here or it waits on a
+        // dead tunnel forever.
+        log(`CONNECT ${req.url} tunnel closed: ${err.message}`);
+        clientSocket.destroy();
+        upstream.destroy();
+        return;
+      }
+      if (settled) return;
+      settled = true;
+      if (clientGone) {
+        // Chromium gave up first: nothing to answer, and a closed client says
+        // nothing about whether the upstream is reachable.
+        upstream.destroy();
+        return;
+      }
+      if (failoverEnabled && isUnreachable(err)) {
         breaker.trip(err.code || err.message);
         upstream.destroy();
+        // The direct tunnel owns the client from here; this attempt's
+        // listeners would otherwise treat its half-close as abandonment.
+        clientSocket.off('end', clientLeft);
+        clientSocket.off('close', onClientClose);
         connectDirect(req, clientSocket, head);
         return;
       }
@@ -458,10 +484,40 @@ export function createAuthRelay({
     };
 
     upstream.on('error', fail);
+    // The other direction: pipe() forwards the client's clean end but not a
+    // reset, and an established upstream has no timeout, so a reset would
+    // leave it open until the far end closed it.
+    // Before the tunnel is up, a client FIN shows only as 'end' (the
+    // server's sockets allow half-open), so both events count as leaving.
+    let clientGone = false;
+    const clientLeft = () => {
+      if (established || clientGone) return;
+      clientGone = true;
+      upstream.destroy();
+      clientSocket.destroy(); // a half-open socket would otherwise stay open
+    };
+    const onClientClose = (hadError) => {
+      if (!established) { clientLeft(); return; }
+      if (hadError) upstream.destroy(); else upstream.end();
+    };
+    clientSocket.once('end', clientLeft);
+    clientSocket.once('close', onClientClose);
+    // An upstream that accepts and then closes cleanly (a FIN, no error)
+    // before answering would otherwise leave Chromium's tunnel hanging: the
+    // close also clears the connect timeout. Same window as a reset, so the
+    // same code.
+    upstream.once('close', () => {
+      // After establishment a clean close is the normal end of a tunnel, and
+      // pipe() has already ended the client gracefully.
+      if (established) return;
+      fail(Object.assign(new Error('upstream closed before answering CONNECT'), { code: 'ECONNRESET' }));
+    });
 
     readResponseHead(
       upstream,
       (responseHead, rest) => {
+        if (settled) return;
+        settled = true;
         const status = Number(responseHead.split(' ')[1]);
         if (status !== 200) {
           // Relay the upstream's own answer rather than inventing one — a 407
