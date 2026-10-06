@@ -22,12 +22,8 @@ jobs:
       actions: read
       contents: read
       security-events: write # upload analysis results to code scanning
-    # Our own code (pushes, same-repo PRs, schedules, dispatches) runs on browser-bridge-exec, the
-    # non-root one-job runners on our host, so GitHub's hosted
-    # queue going down does not hold our PRs. A fork's PR and a Dependabot PR run code nobody
-    # here wrote, so they stay on GitHub's runners.
-    # A fork repository has no browser-bridge-exec runners, so every run there stays on GitHub's runners too.
-    runs-on: ${{ (github.repository != 'askalf/browser-bridge' || github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]')) && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
+    # CodeQL runs on GitHub's runners: it sizes itself to the machine, and the exec runners of every repo share one host, so concurrent analyses would exhaust its memory.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -35,16 +31,10 @@ jobs:
         language: [javascript-typescript]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # CodeQL sizes itself to the machine's RAM and cores; on our host every exec runner shares
-      # one memory ceiling, so on our runner it gets 2G and two threads, on GitHub's its defaults.
       - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
-          ram: ${{ runner.environment == 'self-hosted' && '2048' || '' }}
-          threads: ${{ runner.environment == 'self-hosted' && '2' || '' }}
       - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: "/language:${{ matrix.language }}"
-          ram: ${{ runner.environment == 'self-hosted' && '2048' || '' }}
-          threads: ${{ runner.environment == 'self-hosted' && '2' || '' }}

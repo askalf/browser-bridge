@@ -535,6 +535,10 @@ console.log('\n  fleet-status.yml: which events run the job for a fork');
     }
   }
   check('the own-code runs-on expression is in use', ownExprs.length >= 9);
+  // CodeQL sizes itself to the machine, and every repo's exec runners share one host.
+  check('CodeQL runs on the hosted runners',
+    /^\s+runs-on: ubuntu-latest$/m.test(readFileSync(join(dir, 'codeql.yml'), 'utf8').replace(/\r\n/g, '\n'))
+      && !ownExprs.some(({ f }) => f === 'codeql.yml') && !repoOnly.some(({ f }) => f === 'codeql.yml'));
   const runner = (e, github, repository = HOME, matrix = { os: 'ubuntu-latest' }) => {
     for (const r of ['ubuntu-latest', 'windows-latest', 'macos-latest']) {
       if (evalIf(`(${e}) == '${r}'`, { github: { repository, ...github }, matrix })) return r;
