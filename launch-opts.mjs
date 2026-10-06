@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 // ════════════════════════════════════════════════════════════════════
 // Launch-option assembly, kept pure so it can be asserted in tests.
 //
@@ -53,4 +57,111 @@ export function buildLaunchOptions({ chromePath, commonArgs, debugPort, userData
     args,
     ignoreDefaultArgs: ['--enable-automation'],
   };
+}
+
+/**
+ * Read a positive-integer env var, or the default when unset or empty.
+ * Anything else throws at startup: a typo like `abc` or `8s` would
+ * otherwise parse to NaN or a wrong unit and quietly disable a session cap,
+ * spin a timer every millisecond, or crash on the first socket that uses it.
+ *
+ * @param {string} name
+ * @param {number} def
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {number}
+ */
+export function envInt(name, def, env = process.env) {
+  const raw = (env[name] ?? '').trim();
+  if (raw === '') return def;
+  if (!/^\d+$/.test(raw) || Number(raw) <= 0 || !Number.isSafeInteger(Number(raw))) {
+    throw new Error(`${name} must be a positive integer, got ${JSON.stringify(env[name])}`);
+  }
+  return Number(raw);
+}
+
+/**
+ * Read a boolean env var. Only 1/true/yes/on (any case) turn it on, so an
+ * explicit `0` or `false` means off rather than "set, therefore on".
+ *
+ * @param {string} name
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {boolean}
+ */
+export function envFlag(name, env = process.env) {
+  return /^(1|true|yes|on)$/i.test((env[name] ?? '').trim());
+}
+
+/**
+ * The session broker's launcher for isolated mode: each session gets a fresh
+ * profile directory under `tmpRoot` and its own browser. The directory is
+ * removed when the session closes, and also when the launch itself fails, so
+ * a failing launch (including the periodic health probe) never leaves
+ * profiles behind.
+ *
+ * @param {object} o
+ * @param {(opts: object) => Promise<any>} o.launchBrowser  puppeteer.launch
+ * @param {(key: string, userDataDir: string) => object} o.optionsFor  launch options for a session
+ * @param {string} [o.tmpRoot]  parent of the per-session profile directories
+ * @returns {(key: string, hooks?: {onExit?: () => void}) => Promise<{wsEndpoint: string, pid?: number, close: () => Promise<void>}>}
+ */
+export function makeIsolatedLauncher({ launchBrowser, optionsFor, tmpRoot = os.tmpdir() }) {
+  return async (key, { onExit } = {}) => {
+    const udd = fs.mkdtempSync(path.join(tmpRoot, 'bb-sess-'));
+    const removeProfile = () => { try { fs.rmSync(udd, { recursive: true, force: true }); } catch { /* gone */ } };
+    let b;
+    try {
+      b = await launchBrowser(optionsFor(key, udd));
+    } catch (err) {
+      removeProfile();
+      throw err;
+    }
+    if (onExit) {
+      b.on('disconnected', onExit);
+      // A browser that died before launch() resolved has already fired
+      // 'disconnected', so the listener above never will.
+      if (b.connected === false) onExit();
+    }
+    return {
+      wsEndpoint: b.wsEndpoint(),
+      pid: b.process()?.pid,
+      close: async () => {
+        try { await b.close(); } catch { /* already gone */ }
+        removeProfile();
+      },
+    };
+  };
+}
+
+/**
+ * Make a failed listen() fatal. A server that cannot bind its port emits
+ * 'error' before it is listening; leaving the process up would give a
+ * container whose health check is green (or absent) while the port it exists
+ * for serves nothing. Errors after a successful listen are only logged.
+ *
+ * @param {import('node:net').Server} server
+ * @param {string} name  shown in the log line
+ * @param {{exit?: (code: number) => void, log?: (msg: string) => void}} [o]
+ */
+export function exitOnListenFailure(server, name, { exit = (code) => process.exit(code), log = console.error } = {}) {
+  server.on('error', (err) => {
+    log(`[browser-bridge] ${name} error: ${err.message}`);
+    if (!server.listening) exit(1);
+  });
+}
+
+/**
+ * The stealth battery's pass floor from BRIDGE_STEALTH_FLOOR: unset or empty
+ * means `total - 1`, otherwise a non-negative integer (0 is a valid floor).
+ * Anything else throws: parseInt would turn `abc` into NaN, and
+ * `passed < NaN` is never true, so the gate would silently never fail.
+ *
+ * @param {string|undefined} raw
+ * @param {number} total  number of checks in the battery
+ * @returns {number}
+ */
+export function parseStealthFloor(raw, total) {
+  const v = (raw ?? '').trim();
+  if (v === '') return total - 1;
+  if (!/^\d+$/.test(v)) throw new Error(`BRIDGE_STEALTH_FLOOR must be a non-negative integer, got ${JSON.stringify(raw)}`);
+  return Number(v);
 }

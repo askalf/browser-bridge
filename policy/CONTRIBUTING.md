@@ -30,21 +30,22 @@ test suite doesn't need them, and CI installs with
 
 ## Making a change
 
-1. Branch off `main`.
+1. Branch off `master` in [askalf/browser-bridge](https://github.com/askalf/browser-bridge); fieldpass lives in `policy/`.
 2. Keep the change focused — one concern per PR.
 3. Add or update tests for any behavior change. fieldpass sits on a trust
    boundary, so changes to the injection firewall, the action gate, or the
    broker / escalation paths must be covered by tests.
 4. Run `npm test` locally before pushing.
-5. Open a pull request against `main`.
+5. Open a pull request against `master`.
 
 ## What CI requires
 
 Every PR must pass these checks to merge:
 
-- `test` (ubuntu-latest, Node **22**) and `test-node20` (ubuntu-latest,
-  Node **20**) — the engines floor is exercised in a separate job so `test`
-  stays a single required-status context
+- `fieldpass-test` (ubuntu-latest, Node **22**) and `fieldpass-test-node20`
+  (ubuntu-latest, Node **20**), from the `fieldpass ci` workflow. The engines
+  floor is exercised in a separate job so `fieldpass-test` stays a single
+  required-status context
 - **CodeQL** static analysis (`analyze (javascript-typescript)`)
 
 OpenSSF Scorecard also runs on the repo; a new high-severity finding will block

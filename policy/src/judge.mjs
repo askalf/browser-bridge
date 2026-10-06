@@ -203,8 +203,13 @@ export class LLMJudge {
       if (!cand) continue;
       const conf = typeof v.confidence === 'number' ? v.confidence : 1;
       if (conf < this.minConfidence) continue;
-      if (actionRank(v.action) <= actionRank(cand.currentAction)) continue; // escalate-only
-      escalations.push({ nodeId: cand.id, action: v.action, reason: v.reason || 'llm-judge', confidence: conf });
+      // A backend that drops the output schema can answer "Block" or "deny".
+      // An injection verdict must not be lost to spelling (fail-open), so
+      // normalise case and read anything unrecognised as quarantine.
+      let action = String(v.action ?? '').trim().toLowerCase();
+      if (actionRank(action) < 0) action = 'quarantine';
+      if (actionRank(action) <= actionRank(cand.currentAction)) continue; // escalate-only
+      escalations.push({ nodeId: cand.id, action, reason: v.reason || 'llm-judge', confidence: conf });
     }
     const result = { escalations, verdicts, candidates };
     if (error) result.error = error;

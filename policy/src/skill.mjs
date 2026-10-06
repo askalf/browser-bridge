@@ -14,7 +14,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { snapshot, diffSnapshots } from './oracle.mjs';
+import { snapshot, diffSnapshots, safeTitle } from './oracle.mjs';
 
 /** Canon-compatible canonical JSON (recursively key-sorted) — so picket's
  *  skillHash equals the content hash canon pins for the same manifest. */
@@ -70,6 +70,9 @@ export class SessionRecorder {
 function redactGolden(g) {
   if (!g || typeof g !== 'object') return g;
   const { visibleText, ...rest } = g;
+  // The title is page text too; a hostile one must not cross the boundary
+  // this mode exists for.
+  if (typeof rest.title === 'string') rest.title = safeTitle(rest.title, rest.url);
   return rest;
 }
 

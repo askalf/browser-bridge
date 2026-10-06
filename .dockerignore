@@ -1,6 +1,10 @@
 .git/
 .github/
-node_modules/
+**/node_modules
+.env
+.env.*
+fuzz/corpus/
+fuzz/crashes/
 *.md
 !Dockerfile.md
 .gitignore

@@ -16,7 +16,7 @@ import { applyEscalations, LLMJudge } from './judge.mjs';
 import { makeClaudeBackend, makeDarioBackend } from './claude-judge.mjs';
 import { buildSafeObservation } from './neutralize.mjs';
 import { makePolicy } from './policy.mjs';
-import { DANGEROUS_ACTION, CREDENTIAL_FIELD, SENSITIVE, matchAny, hostOf } from './patterns.mjs';
+import { DANGEROUS_ACTION, CREDENTIAL_FIELD, SENSITIVE, matchAny, hostOf, matchesIdentifier } from './patterns.mjs';
 
 /** Action types the gate knows how to reason about; anything else is denied. */
 const KNOWN_ACTIONS = new Set(['navigate', 'click', 'type', 'submit']);
@@ -90,9 +90,13 @@ export class GovernedBrowser {
    * Perception plane. Accepts static HTML, a live bridge target, or a
    * caller-owned `page` (a broker checkout, an agent's active session), runs
    * it through the firewall, and returns the safe, model-facing view.
+   * @param {{task?: string}} [opts]  per-call trusted task (defaults to the instance's)
    * @returns {Promise<{observation, detection, decision, safe}>}
    */
-  async observe(input) {
+  async observe(input, opts = {}) {
+    // Resolve the task per call, so concurrent observations on one shared
+    // GovernedBrowser never see or modify each other's task or the default.
+    const task = opts.task ?? this.task;
     // Prefer the live CDP bridge whenever one is reachable — even for inline
     // `html`, which captureFromBridge renders via page.setContent so real
     // computed styles resolve class-based hiding. The static parser is the
@@ -112,12 +116,12 @@ export class GovernedBrowser {
     let escalation = null;
     let detection = deterministic;
     if (this.judge) {
-      escalation = await this.judge.review(observation, deterministic, { url: observation.url, task: this.task });
+      escalation = await this.judge.review(observation, deterministic, { url: observation.url, task });
       if (escalation.escalations.length) detection = applyEscalations(deterministic, escalation.escalations, observation);
     }
 
     const decision = await this.policy.decide(detection, { url: observation.url });
-    const safe = buildSafeObservation(observation, detection, { task: this.task });
+    const safe = buildSafeObservation(observation, detection, { task });
     this._log({
       plane: 'perception', url: observation.url, verdict: detection.verdict,
       decision: decision.action, redactions: safe.redactions.length,
@@ -149,7 +153,7 @@ export class GovernedBrowser {
       // The agent obtaining and typing a secret defeats the whole identity plane.
       const looksCredential =
         action.credential ||
-        CREDENTIAL_FIELD.test(action.selector || '') ||
+        matchesIdentifier(CREDENTIAL_FIELD, action.selector || '') ||
         matchAny(action.text || '', SENSITIVE);
       if (looksCredential) {
         return this._log({ plane: 'action', action: { ...action, text: '<redacted>' }, allowed: false, reason: 'credential-shaped field/value — must be injected via login(), never typed by the agent' });
@@ -157,7 +161,7 @@ export class GovernedBrowser {
     }
     if (action.type === 'click' || action.type === 'submit') {
       const blob = `${action.selector || ''} ${action.text || ''} ${action.intent || ''}`;
-      if (matchAny(blob, DANGEROUS_ACTION)) {
+      if (DANGEROUS_ACTION.some((re) => matchesIdentifier(re, blob))) {
         return this._log({ plane: 'action', action, allowed: false, requireApproval: true, reason: 'high-authority action — step-up approval required' });
       }
     }

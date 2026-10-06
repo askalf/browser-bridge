@@ -6,3 +6,6 @@ node_modules/
 # fuzz.yml / fuzz/run.mjs working dirs
 fuzz/corpus/
 fuzz/crashes/
+# written by a local stealth-score.mjs / release-notes.mjs run
+stealth.json
+release-notes.md

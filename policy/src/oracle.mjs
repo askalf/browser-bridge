@@ -16,7 +16,8 @@
  * plus a thin ReplayOracle that records goldens and runs the above.
  */
 
-import { detect, actionRank } from './detect.mjs';
+import { detect, analyzeNode, actionRank } from './detect.mjs';
+import { hostOf } from './patterns.mjs';
 
 /** Sources that carry text a sighted user actually reads. Includes `shadow`
  *  (open shadow-root text) and `pseudo` (CSS ::before/::after content) — the
@@ -39,6 +40,45 @@ export function stableHash(str) {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
+const withheldAction = (a) => a === 'quarantine' || a === 'block';
+
+/**
+ * Hashes of the visible lines the firewall withholds. A golden keeps its raw
+ * text (canon scans a recorded skill for poisoning, so the payload has to be
+ * there), and this list is how anything that hands golden text back to the
+ * AGENT (a replay diff) knows which lines it must not repeat.
+ */
+function withheldHashes(obs, det) {
+  const withheld = new Set(det.findings.filter((f) => withheldAction(f.action)).map((f) => f.nodeId));
+  const out = new Set();
+  for (const n of obs.nodes || []) {
+    if (!withheld.has(n.id) || n.hidden || !VISIBLE_SOURCES.has(n.source)) continue;
+    const line = (n.text || '').replace(/\s+/g, ' ').trim();
+    if (line) out.add(stableHash(line));
+  }
+  return [...out].sort();
+}
+
+/** True when `line` (as it appears in a snapshot's visibleText) was withheld. */
+export function isWithheldLine(snap, line) {
+  return !!snap && Array.isArray(snap.withheld) && snap.withheld.includes(stableHash(line));
+}
+
+/**
+ * The page title, safe to show the agent. The title never enters the safe
+ * view, so nothing else checks it: one that would be withheld as page text
+ * comes back as a placeholder with a hash, so a change is still visible.
+ */
+export function safeTitle(title, url) {
+  const t = title || '';
+  if (!t.trim()) return t;
+  const f = analyzeNode(
+    { id: 'title', text: t, source: 'text', tag: 'title', path: 'head>title', hidden: false },
+    { originHost: hostOf(url || '') || null },
+  );
+  return f && withheldAction(f.action) ? `[picket: title withheld #${stableHash(t)}]` : t;
+}
+
 /**
  * A golden fingerprint of a page state. Pure function of the Observation, so
  * the same page always yields the same snapshot (and hash).
@@ -54,7 +94,7 @@ export function snapshot(obs, opts = {}) {
   return {
     url: obs.url || '', origin: obs.origin || '', title: obs.title || '',
     verdict: det.verdict, trifecta: !!det.trifecta,
-    visibleText, textHash: stableHash(visibleText),
+    visibleText, textHash: stableHash(visibleText), withheld: withheldHashes(obs, det),
     nodeCount: (obs.nodes || []).length,
     visibleCount: lines.length,
     hiddenCount: (obs.nodes || []).filter((n) => n.hidden).length,
