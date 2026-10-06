@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    # non-root ephemeral exec runners on our host (platform deploy/gha-runners, browser-bridge-exec-e1)
+    - browser-bridge-exec
