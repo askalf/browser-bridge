@@ -22,7 +22,7 @@ jobs:
       actions: read
       contents: read
       security-events: write # upload analysis results to code scanning
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     strategy:
       fail-fast: false

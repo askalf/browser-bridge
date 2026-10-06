@@ -32,7 +32,7 @@ permissions:
 jobs:
   manifest:
     name: manifest matches the repo
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 3
     permissions:
       contents: read
