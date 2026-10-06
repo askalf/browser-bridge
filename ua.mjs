@@ -38,10 +38,8 @@ export const FALLBACK_CHROME_MAJOR = 140;
 
 /**
  * Extract the Chrome/Chromium major from a `--version` string. Pure. Returns
- * null if unparseable. The major is at most 5 digits and starts the version
- * (not the tail of a longer digit run, nor a later component): an unbounded
- * `\d+` turned a few hundred digits into Infinity, which then went into
- * every UA string.
+ * null if unparseable. The major is at most 5 digits and is the version's
+ * first component: not the tail of a longer digit run, nor a later component.
  */
 export function parseChromeMajor(versionOutput) {
   const m = /(?<![\d.])(\d{1,5})\.\d+\.\d+/.exec(String(versionOutput ?? ''));
