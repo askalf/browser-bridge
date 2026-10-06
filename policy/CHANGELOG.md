@@ -4,6 +4,8 @@ All notable changes to `@askalf/fieldpass` are documented here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-06
+
 ### Fixed
 - Invisible characters outside the old zero-width list (bidi marks and
   embeddings, the combining grapheme joiner, variation selectors, Hangul
