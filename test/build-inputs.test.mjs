@@ -83,7 +83,7 @@ test('a root module change owes the image build', () => {
 });
 
 test('each image input owes the build', () => {
-  for (const f of ['Dockerfile', '.dockerignore', 'package.json', 'package-lock.json', '.github/workflows/build.yml'])
+  for (const f of ['Dockerfile', '.dockerignore', 'Dockerfile.dockerignore', 'package.json', 'package-lock.json', '.github/workflows/build.yml'])
     assert.equal(decide([f]), 'true', f);
 });
 

@@ -43,7 +43,7 @@ jobs:
 
   # docker-build needs a Docker daemon, and browser-bridge-exec has none (Docker on our host is root). So the
   # image job runs on GitHub's runners, on every push to the default branch and on a PR that
-  # changes what the image is built from: the Dockerfile, .dockerignore, the package files, the
+  # changes what the image is built from: the Dockerfile, .dockerignore or Dockerfile.dockerignore, the package files, the
   # root .mjs files it copies, or this file. The required check docker-build runs on our runner and passes only when that
   # job passed or was not owed, so a PR that changes none of them never waits on GitHub's queue.
   docker-build-inputs:
@@ -81,7 +81,7 @@ jobs:
             printf '%s\n' "$f"
             case "$f" in
               */*.mjs) ;;
-              Dockerfile|.dockerignore|package.json|package-lock.json|*.mjs|.github/workflows/build.yml)
+              Dockerfile|.dockerignore|Dockerfile.dockerignore|package.json|package-lock.json|*.mjs|.github/workflows/build.yml)
                 changed=true ;;
             esac
           done < "$list"
