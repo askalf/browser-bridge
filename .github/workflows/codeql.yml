@@ -22,6 +22,7 @@ jobs:
       actions: read
       contents: read
       security-events: write # upload analysis results to code scanning
+    # CodeQL runs on GitHub's runners: it sizes itself to the machine, and the exec runners of every repo share one host, so concurrent analyses would exhaust its memory.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:

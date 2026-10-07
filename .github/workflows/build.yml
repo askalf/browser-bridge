@@ -20,7 +20,12 @@ concurrency:
 
 jobs:
   unit-tests:
-    runs-on: ubuntu-latest
+    # Our own code (pushes, same-repo PRs, schedules, dispatches) runs on browser-bridge-exec, the
+    # non-root one-job runners on our host, so GitHub's hosted
+    # queue going down does not hold our PRs. A fork's PR and a Dependabot PR run code nobody
+    # here wrote, so they stay on GitHub's runners.
+    # A fork repository has no browser-bridge-exec runners, so every run there stays on GitHub's runners too.
+    runs-on: ${{ (github.repository != 'askalf/browser-bridge' || github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]')) && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,7 +41,56 @@ jobs:
       - name: Unit tests (cdp-proxy + session-broker + mcp-server)
         run: npm test
 
-  docker-build:
+  # docker-build needs a Docker daemon, and browser-bridge-exec has none (Docker on our host is root). So the
+  # image job runs on GitHub's runners, on every push to the default branch and on a PR that
+  # changes what the image is built from: the Dockerfile, .dockerignore or Dockerfile.dockerignore, the package files, the
+  # root .mjs files it copies, or this file. The required check docker-build runs on our runner and passes only when that
+  # job passed or was not owed, so a PR that changes none of them never waits on GitHub's queue.
+  docker-build-inputs:
+    # A fork repository has no browser-bridge-exec runners, so every run there stays on GitHub's runners too.
+    runs-on: ${{ (github.repository != 'askalf/browser-bridge' || github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]')) && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: diff
+        name: does the image depend on a changed file
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # test/build-inputs.test.mjs runs this script against scratch repositories.
+        run: |
+          set -eo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          # -z gives each path whole and NUL-terminated: without it Git quotes a path holding a
+          # non-ASCII byte, a tab or a newline, and the quoted form would not match. --no-renames
+          # lists a moved file at both its old and its new path, so moving a root module into a
+          # directory, out of the image's COPY *.mjs, still owes the image build.
+          list=$(mktemp)
+          git diff --no-renames --name-only -z "$BASE_SHA" HEAD > "$list"
+          changed=false
+          while IFS= read -r -d '' f; do
+            printf '%s\n' "$f"
+            case "$f" in
+              */*.mjs) ;;
+              Dockerfile|.dockerignore|Dockerfile.dockerignore|package.json|package-lock.json|*.mjs|.github/workflows/build.yml)
+                changed=true ;;
+            esac
+          done < "$list"
+          rm -f "$list"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  docker-build-image:
+    needs: docker-build-inputs
+    if: needs.docker-build-inputs.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -84,3 +138,20 @@ jobs:
       - name: Teardown
         if: always()
         run: docker rm -f bb || true
+
+  docker-build:
+    needs: [docker-build-inputs, docker-build-image]
+    if: always()
+    # A fork repository has no browser-bridge-exec runners, so every run there stays on GitHub's runners too.
+    runs-on: ${{ (github.repository != 'askalf/browser-bridge' || github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]')) && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
+    timeout-minutes: 5
+    steps:
+      - name: the image job passed, or no change owed one
+        env:
+          INPUTS: ${{ needs.docker-build-inputs.result }}
+          CHANGED: ${{ needs.docker-build-inputs.outputs.changed }}
+          IMAGE: ${{ needs.docker-build-image.result }}
+        run: |
+          echo "docker-build-inputs: $INPUTS (changed=$CHANGED), docker-build-image: $IMAGE"
+          test "$INPUTS" = success
+          if [ "$CHANGED" = true ]; then test "$IMAGE" = success; fi

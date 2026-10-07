@@ -502,6 +502,66 @@ console.log('\n  fleet-status.yml: which events run the job for a fork');
     && checkouts.every((m) => /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/.test(m[1])));
   check('no step reads the PR head ref or sha', !/(pull_request\.head\.(ref|sha)|workflow_run\.head_sha)/.test(own));
 
+  // Our own code runs on browser-bridge-exec, our host's runners; code nobody here wrote never does, and a fork
+  // repository, which has no browser-bridge-exec runners, never waits for one. The own-code expression sends a
+  // fork's PR, a Dependabot PR and any run in a fork repository to GitHub's runners and everything
+  // else to ours. The repository-only expression (fleet-status and its backfill, which never run PR code) sends
+  // everything here to ours. A literal browser-bridge-exec needs a job if: that keeps it to this repository's
+  // own code. Matrix entries for Windows and macOS keep their own runners.
+  const OWN_RE = /^\s+runs-on: \$\{\{ (.+) \}\}$/;
+  const HOME = 'askalf/browser-bridge';
+  const FORK_REPO = 'someone/browser-bridge';
+  const ownExprs = [];
+  const repoOnly = [];
+  const literal = [];
+  for (const f of readdirSync(dir).filter((x) => /\.ya?ml$/.test(x))) {
+    const y = readFileSync(join(dir, f), 'utf8').replace(/\r\n/g, '\n');
+    for (const line of y.split('\n')) {
+      const m = OWN_RE.exec(line);
+      if (m && m[1].includes('browser-bridge-exec')) (m[1].includes('github.event.pull_request') ? ownExprs : repoOnly).push({ f, e: m[1] });
+      else if (/^\s+runs-on: \[self-hosted, browser-bridge-exec\]/.test(line)) literal.push({ f, y });
+    }
+  }
+  check('the own-code runs-on expression is in use', ownExprs.length >= 9);
+  // CodeQL sizes itself to the machine, and every repo's exec runners share one host.
+  check('CodeQL runs on the hosted runners',
+    /^\s+runs-on: ubuntu-latest$/m.test(readFileSync(join(dir, 'codeql.yml'), 'utf8').replace(/\r\n/g, '\n'))
+      && !ownExprs.some(({ f }) => f === 'codeql.yml') && !repoOnly.some(({ f }) => f === 'codeql.yml'));
+  const runner = (e, github, repository = HOME, matrix = { os: 'ubuntu-latest' }) => {
+    for (const r of ['ubuntu-latest', 'windows-latest', 'macos-latest']) {
+      if (evalIf(`(${e}) == '${r}'`, { github: { repository, ...github }, matrix })) return r;
+    }
+    return 'ours';
+  };
+  const prFrom = (event_name, headRepo, login = 'askalf') =>
+    ({ event_name, event: { pull_request: { head: { repo: { full_name: headRepo } }, user: { login } } } });
+  const EVENTS = ['push', 'schedule', 'workflow_dispatch'].map((event_name) => ({ event_name, event: {} }));
+  for (const { f, e } of ownExprs) {
+    check(`${f}: a fork's pull_request runs on GitHub's runners`, runner(e, prFrom('pull_request', FORKED)) === 'ubuntu-latest');
+    check(`${f}: a fork's pull_request_review runs on GitHub's runners`, runner(e, prFrom('pull_request_review', FORKED)) === 'ubuntu-latest');
+    check(`${f}: a Dependabot PR runs on GitHub's runners`, runner(e, prFrom('pull_request', HOME, 'dependabot[bot]')) === 'ubuntu-latest');
+    check(`${f}: a same-repo PR runs on ours`, runner(e, prFrom('pull_request', HOME)) === 'ours');
+    check(`${f}: a push, schedule or dispatch runs on ours`, EVENTS.every((ev) => runner(e, ev) === 'ours'));
+    check(`${f}: in a fork repository every event runs on GitHub's runners`,
+      [...EVENTS, prFrom('pull_request', FORK_REPO)].every((ev) => runner(e, ev, FORK_REPO) === 'ubuntu-latest'));
+    check(`${f}: the expression names exactly our label`, e.includes(`fromJSON('["self-hosted","browser-bridge-exec"]')`));
+    if (e.includes('matrix.os')) {
+      check(`${f}: Windows and macOS entries keep their own runners, here and in a fork repository`,
+        runner(e, prFrom('pull_request', HOME), HOME, { os: 'windows-latest' }) === 'windows-latest'
+        && runner(e, EVENTS[0], HOME, { os: 'macos-latest' }) === 'macos-latest'
+        && runner(e, EVENTS[0], FORK_REPO, { os: 'windows-latest' }) === 'windows-latest');
+    }
+  }
+  for (const { f, e } of repoOnly) {
+    check(`${f}: every event here runs on ours`, [...EVENTS, prFrom('pull_request', FORKED)].every((ev) => runner(e, ev) === 'ours'));
+    check(`${f}: in a fork repository it runs on GitHub's runners`, EVENTS.every((ev) => runner(e, ev, FORK_REPO) === 'ubuntu-latest'));
+    check(`${f}: only a job that never runs PR code uses it`, ['fleet-status.yml', 'fleet-status-backfill.yml'].includes(f));
+  }
+  for (const { f, y } of literal) {
+    check(`${f}: a literal browser-bridge-exec job runs only in this repository, or only on its own PRs`,
+      y.includes(`github.repository == '${HOME}'`) || /head\.repo\.full_name == github\.repository/.test(y));
+  }
+
   let relay = '';
   try { relay = readFileSync(join(dir, 'fleet-review-relay.yml'), 'utf8'); } catch { /* checked below */ }
   const listed = (/^  workflow_run:\s*\n\s+workflows:\s*\[([^\]]*)\]/m.exec(own)?.[1] ?? '')
