@@ -33,9 +33,8 @@ permissions:
 
 # Keyed to the review being answered, not just the PR: a GitHub concurrency group keeps at most
 # one running and one pending run, so grouping on the PR alone would let a third review for the
-# same PR cancel the pending run for a second. Each review targets a distinct head, and the run
-# fails outright if its head has moved past the PR's current one, so letting different reviews'
-# runs overlap is safe.
+# same PR cancel the pending run for a second. Runs answering different reviews land in
+# different groups, so they are not serialized against each other and can overlap.
 concurrency:
   group: fix-${{ github.repository }}-${{ inputs.pr }}-${{ inputs.review }}
   cancel-in-progress: false
