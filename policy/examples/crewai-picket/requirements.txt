@@ -14,6 +14,10 @@ crewai==1.15.7
 # Those two arrive via instructor, whose python<3.10 markers cap them below the
 # fix. crewai needs >=3.10, so a real install already gets fixed builds; a
 # marker-blind resolver (OSV/Scorecard) took the capped branch until these.
+# mcp stays at 1.28.x: every crewai release through 1.15.28 requires mcp~=1.28.1,
+# so the GHSA-84m7-p3x7-pcfv fix (1.30.0) cannot install here yet. That advisory
+# is session accumulation in the StreamableHTTP server transport; this demo uses
+# mcp only as a client. Raise the floor once crewai allows 1.30.
 mcp>=1.28.1
 json-repair>=0.60.1
 aiohttp>=3.14.3
