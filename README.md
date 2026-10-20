@@ -83,7 +83,7 @@ Part of **[Own Your Stack](https://github.com/askalf)**: open tools for owning y
 - **[plumbline](https://github.com/askalf/plumbline)**: own your agent trajectory
 - **[fieldpass](policy/)**: own your agent browser
 - **[amnesia](https://github.com/askalf/amnesia)**: own your search
-- **[checkout-with-retry](https://github.com/askalf/checkout-with-retry)**: own your CI with retrying checkouts
+- **[ci](https://github.com/askalf/ci)**: own your CI · gating review in CI and [retrying checkouts](https://github.com/askalf/ci/tree/main/actions/checkout-with-retry)
 - **[askalf](https://askalf.org)**: own your operation: the AI operation that runs Sprayberry Labs
 
 ---
