@@ -28,7 +28,7 @@ jobs:
     runs-on: ${{ (github.repository != 'askalf/browser-bridge' || github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]')) && 'ubuntu-latest' || fromJSON('["self-hosted","browser-bridge-exec"]') }}
     timeout-minutes: 10
     steps:
-      - uses: askalf/ci/actions/checkout-with-retry@bb480f4d68116c382130f8bbe255ce8eb07ff8ef # main 2026-10-20, askalf/ci#72
+      - uses: askalf/ci/actions/checkout-with-retry@da417cf6f69b3fb9a574a76fe8741e9bc1b2d9dd # main 2026-10-20, askalf/ci#76
       # Test on the runtime the image ships (node:26-slim), not whatever the
       # runner image happens to carry.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -53,7 +53,7 @@ jobs:
     outputs:
       changed: ${{ steps.diff.outputs.changed }}
     steps:
-      - uses: askalf/ci/actions/checkout-with-retry@bb480f4d68116c382130f8bbe255ce8eb07ff8ef # main 2026-10-20, askalf/ci#72
+      - uses: askalf/ci/actions/checkout-with-retry@da417cf6f69b3fb9a574a76fe8741e9bc1b2d9dd # main 2026-10-20, askalf/ci#76
         with:
           persist-credentials: false
       - id: diff
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: askalf/ci/actions/checkout-with-retry@bb480f4d68116c382130f8bbe255ce8eb07ff8ef # main 2026-10-20, askalf/ci#72
+      - uses: askalf/ci/actions/checkout-with-retry@da417cf6f69b3fb9a574a76fe8741e9bc1b2d9dd # main 2026-10-20, askalf/ci#76
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build + load — verifies Dockerfile is sound and gives us an image to run
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
