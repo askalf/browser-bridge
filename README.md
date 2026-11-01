@@ -9,6 +9,7 @@
 One stealth headless Chromium in a container, exposing Chrome DevTools Protocol on port 9222 with the two things raw CDP never had: **authentication** and **a trust boundary you can read**. Connect from Playwright, Puppeteer, an MCP client, or any agent that wants a real browser without bundling one.
 
 [![Build](https://img.shields.io/github/actions/workflow/status/askalf/browser-bridge/build.yml?style=for-the-badge&label=build&labelColor=020612)](https://github.com/askalf/browser-bridge/actions/workflows/build.yml)
+[![CI on pitlane](https://img.shields.io/endpoint?url=https%3A%2F%2Fpitlane.askalf.org%2Fbadge.json&style=for-the-badge&labelColor=020612)](https://pitlane.askalf.org/)
 [![stealth](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/askalf/browser-bridge/badges/stealth.json&style=for-the-badge&labelColor=020612)](https://github.com/askalf/browser-bridge/actions/workflows/stealth.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-askalf%2Fbrowser--bridge-00ff88?style=for-the-badge&labelColor=020612)](https://github.com/askalf/browser-bridge/pkgs/container/browser-bridge)
 [![License](https://img.shields.io/badge/MIT-00ff88?style=for-the-badge&label=license&labelColor=020612)](LICENSE)
