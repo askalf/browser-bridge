@@ -47,6 +47,14 @@ Most "headless Chrome in Docker" images are a `Dockerfile` around a browser. bro
 - **The browser's own chatter stays home.** GCM, component update, domain-reliability beacons, and Sync are disabled at launch, so a metered or residential proxy carries only the traffic your client asked for.
 - **Unit tests with no Docker required.** `npm test` runs the proxy, relay, broker, MCP server, profile lock, and UA suites against fakes and stubs, in seconds.
 
+## The CI verification lane
+
+In the CI our own repositories share, browser-bridge is the browser a job checks a page against. A job that has to see what a user would see connects over CDP, as in the two lines above, and drives it: render a page's JavaScript, take a screenshot (`browser_screenshot` for an MCP client), or check that a front end loads and behaves.
+
+It is allow-listed at both ends. The bridge sits on a private network and, with `BRIDGE_TOKEN` set, answers only a client that presents it; the pages a job sends it to are our own, which let it in by allow-list, and an agent that drives it through [fieldpass](policy/) navigates only to the hosts in `PICKET_ALLOWLIST`. It does not solve third-party challenges: a CAPTCHA or bot check on a site that has not allow-listed it is a result to report, not something to retry. Stealth makes a page render as it would for a person; it is not a way past a site that says no.
+
+The pull requests behind those jobs are gated by [askalf/ci](https://github.com/askalf/ci), the reusable workflows and Redline review every pull request passes, and the jobs run on pitlane, self-hosted runners whose queue wait is published live on [the proof page](https://pitlane.askalf.org/). This repository's own pull requests pass the same gate.
+
 ## Reference
 
 - **[Security model](docs/security-model.md)**: who can do what on the path, every guarantee with a command to check it against a running container, and the four honest caveats (`--no-sandbox`, CDP open by default, the loopback relay, CRLSet).
