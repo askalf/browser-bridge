@@ -17,6 +17,7 @@ One stealth headless Chromium in a container, exposing Chrome DevTools Protocol 
 [![CodeQL](https://github.com/askalf/browser-bridge/actions/workflows/codeql.yml/badge.svg)](https://github.com/askalf/browser-bridge/actions/workflows/codeql.yml)
 [![ClusterFuzzLite](https://github.com/askalf/browser-bridge/actions/workflows/cflite.yml/badge.svg)](https://github.com/askalf/browser-bridge/actions/workflows/cflite.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/askalf/browser-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/askalf/browser-bridge)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16166/badge)](https://www.bestpractices.dev/projects/16166)
 
 </div>
 
