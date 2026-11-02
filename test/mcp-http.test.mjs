@@ -7,9 +7,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import http from 'node:http';
 import { createMcpBridgeServer } from '../mcp-server.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The keep-alive tests need the session to survive the gap between the initialize
+// response and the next request, which a loaded runner can stretch past 50 ms. This
+// window is wide enough for that gap, and each test outlasts it three times over.
+const KEEP_IDLE_MS = 500;
 
 const INIT = {
   jsonrpc: '2.0', id: 1, method: 'initialize',
@@ -73,7 +79,7 @@ test('a session whose client never sends DELETE is closed once idle', async () =
 });
 
 test('an open GET stream keeps its session alive past the idle window', async () => {
-  await withServer({ sessionIdleMs: 50 }, async ({ mcp, port }) => {
+  await withServer({ sessionIdleMs: KEEP_IDLE_MS }, async ({ mcp, port }) => {
     const init = await post(port, INIT);
     const sid = init.headers.get('mcp-session-id');
     await init.body?.cancel();
@@ -83,20 +89,20 @@ test('an open GET stream keeps its session alive past the idle window', async ()
       signal: ac.signal,
     });
     assert.equal(stream.status, 200);
-    await sleep(250);
+    await sleep(KEEP_IDLE_MS * 3);
     assert.equal(mcp.sessionCount(), 1, 'a listening client is not idle');
     ac.abort();
-    for (let i = 0; i < 40 && mcp.sessionCount() > 0; i++) await sleep(25);
+    // Reclaim takes up to the window plus one sweep interval (also the window).
+    for (let i = 0; i < 160 && mcp.sessionCount() > 0; i++) await sleep(25);
     assert.equal(mcp.sessionCount(), 0, 'reclaimed once the stream closes and the window passes');
   });
 });
 
 test('a POST still uploading when the idle window passes keeps its session', async () => {
-  await withServer({ sessionIdleMs: 50 }, async ({ mcp, port }) => {
+  await withServer({ sessionIdleMs: KEEP_IDLE_MS }, async ({ mcp, port }) => {
     const init = await post(port, INIT);
     const sid = init.headers.get('mcp-session-id');
     await init.body?.cancel();
-    const http = await import('node:http');
     const status = await new Promise((resolve, reject) => {
       const req = http.request({
         host: '127.0.0.1', port, path: '/mcp', method: 'POST',
@@ -108,7 +114,7 @@ test('a POST still uploading when the idle window passes keeps its session', asy
       req.on('error', reject);
       const body = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
       req.write(body.slice(0, 10)); // the request has started...
-      setTimeout(() => req.end(body.slice(10)), 250); // ...and finishes well past the idle window
+      setTimeout(() => req.end(body.slice(10)), KEEP_IDLE_MS * 3); // ...and finishes well past the idle window
     });
     assert.equal(status, 200, 'the session was not expired mid-upload');
     assert.equal(mcp.sessionCount(), 1);
