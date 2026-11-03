@@ -9,7 +9,7 @@
 One stealth headless Chromium in a container, exposing Chrome DevTools Protocol on port 9222 with the two things raw CDP never had: **authentication** and **a trust boundary you can read**. Connect from Playwright, Puppeteer, an MCP client, or any agent that wants a real browser without bundling one.
 
 [![Build](https://img.shields.io/github/actions/workflow/status/askalf/browser-bridge/build.yml?style=for-the-badge&label=build&labelColor=020612)](https://github.com/askalf/browser-bridge/actions/workflows/build.yml)
-[![CI on pitlane](https://img.shields.io/endpoint?url=https%3A%2F%2Fpitlane.askalf.org%2Fbadge.json&style=for-the-badge&labelColor=020612)](https://pitlane.askalf.org/)
+[![CI measured](https://img.shields.io/endpoint?url=https%3A%2F%2Fpitlane.askalf.org%2Fbadge.json&style=for-the-badge&labelColor=020612)](https://pitlane.askalf.org/)
 [![stealth](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/askalf/browser-bridge/badges/stealth.json&style=for-the-badge&labelColor=020612)](https://github.com/askalf/browser-bridge/actions/workflows/stealth.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-askalf%2Fbrowser--bridge-00ff88?style=for-the-badge&labelColor=020612)](https://github.com/askalf/browser-bridge/pkgs/container/browser-bridge)
 [![License](https://img.shields.io/badge/MIT-00ff88?style=for-the-badge&label=license&labelColor=020612)](LICENSE)
@@ -54,7 +54,7 @@ In the CI our own repositories share, browser-bridge is the browser a job checks
 
 It is allow-listed at both ends. The bridge sits on a private network and, with `BRIDGE_TOKEN` set, answers only a client that presents it; the pages a job sends it to are our own, which let it in by allow-list, and an agent that drives it through [fieldpass](policy/) navigates only to the hosts in `PICKET_ALLOWLIST`. It does not solve third-party challenges: a CAPTCHA or bot check on a site that has not allow-listed it is a result to report, not something to retry. Stealth makes a page render as it would for a person; it is not a way past a site that says no.
 
-The pull requests behind those jobs are gated by [askalf/ci](https://github.com/askalf/ci), the reusable workflows and Redline review every pull request passes, and the jobs run on pitlane, self-hosted runners whose queue wait is published live on [the proof page](https://pitlane.askalf.org/). This repository's own pull requests pass the same gate.
+The pull requests behind those jobs are gated by [askalf/ci](https://github.com/askalf/ci), the reusable workflows and Redline review every pull request passes, and the jobs run on pitlane, the lab where [ci-wizard](https://github.com/askalf/ci-wizard)'s method is proven: self-hosted runners whose start and run times are published live on [the lab page](https://pitlane.askalf.org/). This repository's own pull requests pass the same gate.
 
 ## Reference
 
