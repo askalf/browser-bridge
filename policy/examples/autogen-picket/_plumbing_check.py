@@ -32,7 +32,7 @@ async def run() -> bool:
             text = "\n".join(b.text for b in res.content if getattr(b, "text", None))
             print("observe verdict line:", text.splitlines()[0])
             return (
-                tools == ["picket_gate", "picket_login", "picket_observe"]
+                {"picket_gate", "picket_login", "picket_observe"} <= set(tools)
                 and "BLOCK" in text
                 and "exfil.evil.example" not in text
                 and "Invoice #7" in text

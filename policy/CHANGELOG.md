@@ -4,6 +4,13 @@ All notable changes to `@askalf/fieldpass` are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- `examples/crewai-picket` moves to `crewai==1.15.35`, which allows the fixed `mcp`, and raises
+  its `mcp` floor to 1.30.0 and its `aiohttp` floor to 3.14.4. Examples only; nothing fieldpass
+  ships has a Python dependency.
+- The examples' `_plumbing_check.py` checks for the three tools it uses instead of the server's
+  whole tool list, which grew and failed the check on any `mcp` version.
+
 ## [0.7.0] - 2026-10-06
 
 ### Fixed
