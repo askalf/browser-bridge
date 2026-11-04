@@ -10,7 +10,7 @@ id = "PYSEC-2026-311"
 ignoreUntil = 2026-10-25
 reason = """
 chromadb pre-auth code injection (CVE-2026-45829), reached transitively via
-crewai's chromadb~=1.1.0 memory backend. NO FIXED VERSION EXISTS upstream: OSV
+crewai's chromadb~=1.5.9 memory backend. NO FIXED VERSION EXISTS upstream: OSV
 records the affected range as 1.0.0 through last_affected 1.5.9, and 1.5.9 is
 the newest release on PyPI, so there is nothing to bump to.
 
@@ -33,7 +33,7 @@ whichever comes first; drop this entry and bump chromadb at that point.
 #
 # All three share the reachability and exploitability analysis above: chromadb is
 # not declared in requirements.txt at all — it arrives transitively through
-# crewai==1.15.7's chromadb~=1.1.0 memory backend — and this demo starts no Chroma
+# crewai==1.15.35's chromadb~=1.5.9 memory backend — and this demo starts no Chroma
 # server, opens no listener, and runs offline over stdio against a local
 # hostile-invoice.html fixture. Every one of them requires reaching a running
 # ChromaDB server's HTTP API as an authenticated (or, for the injection, any)
@@ -51,7 +51,7 @@ reason = """
 CVE-2026-45830 — any authenticated user can read, write, update or delete data in
 another tenant's collection. Affected 0.4.17 through last_affected 1.5.9; no fix
 released. Requires a reachable multi-tenant Chroma server; this demo runs no
-server and has no second tenant. Transitive via crewai's chromadb~=1.1.0.
+server and has no second tenant. Transitive via crewai's chromadb~=1.5.9.
 """
 
 [[IgnoredVulns]]
@@ -61,7 +61,7 @@ reason = """
 CVE-2026-45833 — code injection. Affected 0.4.17 through last_affected 1.5.9; no
 fix released. Requires reaching a running Chroma server's collection endpoints;
 this demo starts none and opens no network listener. Transitive via crewai's
-chromadb~=1.1.0.
+chromadb~=1.5.9.
 """
 
 [[IgnoredVulns]]
@@ -72,5 +72,5 @@ CVE-2026-45831 — SimpleRBACAuthorizationProvider does not check which tenant,
 database or collection a permission applies to, so a granted permission applies
 everywhere. Affected 0.5.0 through last_affected 1.5.9; no fix released. This demo
 configures no authorization provider and runs no server. Transitive via crewai's
-chromadb~=1.1.0.
+chromadb~=1.5.9.
 """

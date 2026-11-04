@@ -1,24 +1,23 @@
 # CrewAI Flow + MCP client (the `mcp` client library rides in with crewai).
 #   pip install -r requirements.txt
-crewai==1.15.7
+crewai==1.15.35
 
-# Transitive floors, pinned up out of known-vulnerable ranges. crewai 1.15.7
-# already requires json-repair~=0.60.1 and mcp~=1.28.1; these restate the floors
+# Transitive floors, pinned up out of known-vulnerable ranges. crewai 1.15.35
+# already requires json-repair~=0.60.1 and mcp>=1.30.0,<2; these restate the floors
 # so a resolver can never settle on an affected build:
-#   mcp         >= 1.28.1  — PYSEC-2026-3481 / -3482 / -3483 (cross-session task
+#   mcp         >= 1.30.0  — PYSEC-2026-3481 / -3482 / -3483 (cross-session task
 #                            access, unauthenticated session reuse on the HTTP
-#                            transports, missing WebSocket Host/Origin checks)
+#                            transports, missing WebSocket Host/Origin checks),
+#                            GHSA-84m7-p3x7-pcfv, -5h93-6whr-6q8j, -rwrf-2pqf-9j8j,
+#                            -w4fh-qvv9-3v23
 #   json-repair >= 0.60.1  — GHSA-xf7x-x43h-rpqh (circular schema $ref CPU DoS)
-#   aiohttp     >= 3.14.3  — PYSEC-2026-237 / -2104..-2113 / -3545..-3547
+#   aiohttp     >= 3.14.4  — PYSEC-2026-237 / -2104..-2113 / -3545..-3547,
+#                            the eight GHSAs of 2026-10-19 and 2026-10-20
 #   requests    >= 2.33.0  — PYSEC-2026-2275
 # Those two arrive via instructor, whose python<3.10 markers cap them below the
 # fix. crewai needs >=3.10, so a real install already gets fixed builds; a
 # marker-blind resolver (OSV/Scorecard) took the capped branch until these.
-# mcp stays at 1.28.x: every crewai release through 1.15.28 requires mcp~=1.28.1,
-# so the GHSA-84m7-p3x7-pcfv fix (1.30.0) cannot install here yet. That advisory
-# is session accumulation in the StreamableHTTP server transport; this demo uses
-# mcp only as a client. Raise the floor once crewai allows 1.30.
-mcp>=1.28.1
+mcp>=1.30.0
 json-repair>=0.60.1
-aiohttp>=3.14.3
+aiohttp>=3.14.4
 requests>=2.33.0
