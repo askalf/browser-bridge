@@ -2,9 +2,8 @@
 
 Thanks for your interest in improving **fieldpass** — own your agent browser: an
 indirect-prompt-injection firewall and action gate that wraps any CDP browser so
-an agent can read untrusted web pages safely. Part of the Own Your Stack
-agent-security suite — part of
-[Own Your Agent Security](https://sprayberrylabs.com).
+an agent can read untrusted web pages safely. Part of the
+[Own Your Stack](https://github.com/askalf) agent-security suite.
 
 ## Ground rules
 
