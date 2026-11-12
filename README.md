@@ -94,7 +94,6 @@ Part of **[Own Your Stack](https://github.com/askalf)**: open tools for owning y
 - **[fieldpass](policy/)**: own your agent browser
 - **[amnesia](https://github.com/askalf/amnesia)**: own your search
 - **[ci](https://github.com/askalf/ci)**: own your CI · gating review in CI and [retrying checkouts](https://github.com/askalf/ci/tree/main/actions/checkout-with-retry)
-- **[askalf](https://askalf.org)**: own your operation: the AI operation that runs Sprayberry Labs
 
 ---
 Built by Thomas Sprayberry.
