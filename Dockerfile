@@ -8,7 +8,7 @@
 # isn't privileged.
 # Digest-pinned (Scorecard Pinned-Dependencies); dependabot's docker ecosystem
 # refreshes the pin so it tracks the 26-slim tag instead of rotting.
-FROM node:26-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072
+FROM node:26-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 
 LABEL org.opencontainers.image.source="https://github.com/askalf/browser-bridge"
 LABEL org.opencontainers.image.description="browser-bridge — stealth headless Chromium exposing CDP on port 9222"
